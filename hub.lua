@@ -1,491 +1,540 @@
 --[[
-    LessHub - Illegal Soccer
-    Mobil Uyumlu • Siyah-Mavi Tema • TR/EN Dil Desteği
+    LessHub for Illegal Soccer
+    Black-Blue Theme | Mobile Friendly | Floating Toggle | No Key
+    Features: Aimbot, Silent Aim, Auto Goal, Auto Goalkeeper, Auto Dribble,
+              Fake Shoot, Perfect Shot, Infinite Stamina, ESP, Speed, Fly, Noclip, vb.
+    Adjustable: Delay (ms), Range (studs)
 ]]
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
--- Dil Sistemi
-local Lang = "tr"
-local L = {}
-
-local function SetLang(lang)
-    Lang = lang
-    if lang == "tr" then
-        L = {
-            Title = "LessHub",
-            Movement = "Hareket",
-            Auto = "Otomatik",
-            Visuals = "Görsel",
-            Misc = "Diğer",
-            InfiniteStamina = "Sınırsız Dayanıklılık",
-            AutoSprint = "Otomatik Sprint",
-            NoBallSlowdown = "Top Yavaşlatma Yok",
-            InfiniteJump = "Sınırsız Zıplama",
-            Fly = "Uçuş",
-            SpeedMultiplier = "Hız Çarpanı",
-            FlySpeed = "Uçuş Hızı",
-            AutoGoalkeeper = "Güçlü Otomatik Kaleci",
-            AutoDive = "Otomatik Dive",
-            AutoDribble = "Gelişmiş Otomatik Dribble",
-            AutoTackle = "Otomatik Tackle",
-            PerfectShot = "Perfect Shot",
-            GoalSilentAim = "Goal Silent Aim",
-            AutoVolley = "Otomatik Volley",
-            BallTrajectory = "Top Yörüngesi",
-            SmartAutoItem = "Akıllı Otomatik Item",
-            AutoPass = "Otomatik Pas",
-            CurveShot = "Curve Shot Assist",
-            AutoSombrero = "Otomatik Sombrero",
-            TackleAimbot = "Tackle Aimbot",
-            AutoClear = "Otomatik Clear",
-            PositioningAssist = "Pozisyon Asistanı",
-            BallESP = "Top ESP",
-            PlayerESP = "Oyuncu ESP",
-            Fullbright = "Fullbright",
-            Radar = "Radar",
-            FPSBooster = "FPS Booster",
-            AntiRagdoll = "Anti Ragdoll",
-            AntiKnockback = "Anti Knockback",
-            AntiAFK = "Anti-AFK",
-            BanProtection = "Ban Koruması",
-            Loaded = "LessHub yüklendi"
-        }
-    else
-        L = {
-            Title = "LessHub",
-            Movement = "Movement",
-            Auto = "Auto",
-            Visuals = "Visuals",
-            Misc = "Misc",
-            InfiniteStamina = "Infinite Stamina",
-            AutoSprint = "Auto Sprint",
-            NoBallSlowdown = "No Ball Slowdown",
-            InfiniteJump = "Infinite Jump",
-            Fly = "Fly",
-            SpeedMultiplier = "Speed Multiplier",
-            FlySpeed = "Fly Speed",
-            AutoGoalkeeper = "Strong Auto Goalkeeper",
-            AutoDive = "Auto Dive",
-            AutoDribble = "Advanced Auto Dribble",
-            AutoTackle = "Auto Tackle",
-            PerfectShot = "Perfect Shot",
-            GoalSilentAim = "Goal Silent Aim",
-            AutoVolley = "Auto Volley",
-            BallTrajectory = "Ball Trajectory",
-            SmartAutoItem = "Smart Auto Item",
-            AutoPass = "Auto Pass",
-            CurveShot = "Curve Shot Assist",
-            AutoSombrero = "Auto Sombrero",
-            TackleAimbot = "Tackle Aimbot",
-            AutoClear = "Auto Clear",
-            PositioningAssist = "Positioning Assist",
-            BallESP = "Ball ESP",
-            PlayerESP = "Player ESP",
-            Fullbright = "Fullbright",
-            Radar = "Radar",
-            FPSBooster = "FPS Booster",
-            AntiRagdoll = "Anti Ragdoll",
-            AntiKnockback = "Anti Knockback",
-            AntiAFK = "Anti-AFK",
-            BanProtection = "Ban Protection",
-            Loaded = "LessHub loaded"
-        }
-    end
-end
-
-SetLang("tr")
-
--- Ayarlar
-local Settings = {
-    InfiniteStamina = false,
-    SpeedMultiplier = 1,
-    AutoSprint = false,
-    NoBallSlowdown = false,
-    InfiniteJump = false,
-    Fly = false,
-    FlySpeed = 55,
-    AutoGoalkeeper = false,
-    AutoDive = true,
-    GKPrediction = 1.25,
-    GKDiveDistance = 29,
-    AutoDribble = false,
-    DribbleDistance = 9.8,
-    DribbleSensitivity = 0.72,
-    AutoTackle = false,
-    TackleDistance = 11.5,
-    PerfectShot = false,
-    GoalSilentAim = false,
-    AutoVolley = false,
-    BallTrajectory = false,
-    SmartAutoItem = false,
-    AutoPass = false,
-    CurveShot = false,
-    AutoSombrero = false,
-    TackleAimbot = false,
-    AutoClear = false,
-    PositioningAssist = false,
-    BallESP = false,
-    PlayerESP = false,
-    Fullbright = false,
-    Radar = false,
-    FPSBooster = false,
-    AntiRagdoll = false,
-    AntiKnockback = false,
-    AntiAFK = true,
-    BanProtection = true,
+-- ============================================================
+-- CONFIG
+-- ============================================================
+local CONFIG = {
+    Colors = {
+        Background = Color3.fromRGB(10, 12, 18),
+        Surface = Color3.fromRGB(18, 22, 32),
+        Primary = Color3.fromRGB(0, 120, 255),
+        PrimaryDim = Color3.fromRGB(0, 70, 160),
+        Text = Color3.fromRGB(230, 235, 245),
+        TextDim = Color3.fromRGB(140, 150, 170),
+        Success = Color3.fromRGB(0, 200, 120),
+        Danger = Color3.fromRGB(220, 60, 60),
+        Warning = Color3.fromRGB(255, 180, 0),
+    },
+    Fonts = {
+        Title = Enum.Font.GothamBold,
+        Body = Enum.Font.Gotham,
+        Mono = Enum.Font.Code,
+    },
 }
 
--- Eski GUI temizle
-if CoreGui:FindFirstChild("LessHub") then
-    CoreGui.LessHub:Destroy()
+-- ============================================================
+-- STATE
+-- ============================================================
+local State = {
+    Open = false,
+    -- Movement
+    WalkSpeedEnabled = false,
+    WalkSpeedValue = 16,
+    JumpPowerEnabled = false,
+    JumpPowerValue = 50,
+    InfiniteJumpEnabled = false,
+    FlyEnabled = false,
+    NoclipEnabled = false,
+    -- Combat / Aimbot
+    AimbotEnabled = false,
+    AimbotDelay = 100,      -- ms
+    AimbotRange = 50,       -- studs
+    SilentAimEnabled = false,
+    SilentAimDelay = 50,
+    SilentAimRange = 100,
+    -- Auto Goal / Dribble
+    AutoGoalEnabled = false,
+    AutoGoalDelay = 200,
+    AutoDribbleEnabled = false,
+    AutoDribbleRange = 30,
+    AutoGoalkeeperEnabled = false,
+    AutoGoalkeeperRange = 20,
+    AutoDiveEnabled = false,
+    AutoDiveDelay = 150,
+    -- Fake / Perfect Shot
+    FakeShootEnabled = false,
+    FakeShootDelay = 150,
+    PerfectShootEnabled = false,
+    PerfectCurveEnabled = false,
+    AutoWallFakeShootEnabled = false,
+    -- Resources
+    InfiniteStaminaEnabled = false,
+    GodmodeEnabled = false,
+    -- Utility
+    ItemESPEnabled = false,
+    PlayerESPEnabled = false,
+    AutoItemUseEnabled = false,
+    ItemAimbotEnabled = false,
+    ItemAimbotRange = 40,
+    AutoplayEnabled = false,
+    AntiBanEnabled = false,
+    ServerHopEnabled = false,
+    -- Connections
+    Connections = {},
+}
+
+-- ============================================================
+-- UTILITY
+-- ============================================================
+local function GetCharacter()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return nil end
+    return char, hum
 end
 
--- GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "LessHub"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = CoreGui
-
--- Floating Button
-local OpenBtn = Instance.new("TextButton")
-OpenBtn.Size = UDim2.new(0, 58, 0, 58)
-OpenBtn.Position = UDim2.new(0, 15, 0.45, 0)
-OpenBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 255)
-OpenBtn.Text = "L"
-OpenBtn.TextSize = 26
-OpenBtn.Font = Enum.Font.GothamBold
-OpenBtn.TextColor3 = Color3.new(1,1,1)
-OpenBtn.Parent = ScreenGui
-Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(1,0)
-local openStroke = Instance.new("UIStroke", OpenBtn)
-openStroke.Color = Color3.fromRGB(100, 200, 255)
-openStroke.Thickness = 2.5
-
--- Ana Frame
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 360, 0, 520)
-Main.Position = UDim2.new(0.5, -180, 0.5, -260)
-Main.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
-Main.BorderSizePixel = 0
-Main.Active = true
-Main.Draggable = true
-Main.Visible = false
-Main.Parent = ScreenGui
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 14)
-
-local mainStroke = Instance.new("UIStroke", Main)
-mainStroke.Color = Color3.fromRGB(0, 140, 255)
-mainStroke.Thickness = 2.5
-
--- Title Bar
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 44)
-TitleBar.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
-TitleBar.BorderSizePixel = 0
-TitleBar.Parent = Main
-Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 14)
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -50, 1, 0)
-Title.Position = UDim2.new(0, 15, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "LessHub"
-Title.TextColor3 = Color3.fromRGB(0, 190, 255)
-Title.TextSize = 18
-Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = TitleBar
-
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 34, 0, 34)
-CloseBtn.Position = UDim2.new(1, -40, 0.5, -17)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 45, 55)
-CloseBtn.Text = "×"
-CloseBtn.TextColor3 = Color3.new(1,1,1)
-CloseBtn.TextSize = 20
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.Parent = TitleBar
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 8)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    Main.Visible = false
-    OpenBtn.Visible = true
-end)
-
-OpenBtn.MouseButton1Click:Connect(function()
-    Main.Visible = true
-    OpenBtn.Visible = false
-end)
-
--- Tablar
-local TabFrame = Instance.new("Frame")
-TabFrame.Size = UDim2.new(1, -16, 0, 34)
-TabFrame.Position = UDim2.new(0, 8, 0, 50)
-TabFrame.BackgroundTransparency = 1
-TabFrame.Parent = Main
-
-local TabList = Instance.new("UIListLayout")
-TabList.FillDirection = Enum.FillDirection.Horizontal
-TabList.Padding = UDim.new(0, 6)
-TabList.Parent = TabFrame
-
-local Content = Instance.new("ScrollingFrame")
-Content.Size = UDim2.new(1, -16, 1, -95)
-Content.Position = UDim2.new(0, 8, 0, 90)
-Content.BackgroundTransparency = 1
-Content.BorderSizePixel = 0
-Content.ScrollBarThickness = 3
-Content.CanvasSize = UDim2.new(0, 0, 0, 1100)
-Content.Parent = Main
-
-local ContentList = Instance.new("UIListLayout")
-ContentList.Padding = UDim.new(0, 6)
-ContentList.Parent = Content
-
-local Tabs = {}
-local CurrentTab = "Movement"
-
-local function CreateTab(name)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 80, 1, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 34, 45)
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(180, 180, 180)
-    btn.TextSize = 13
-    btn.Font = Enum.Font.GothamBold
-    btn.Parent = TabFrame
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-    Tabs[name] = btn
-
-    btn.MouseButton1Click:Connect(function()
-        CurrentTab = name
-        for n, b in pairs(Tabs) do
-            b.BackgroundColor3 = (n == name) and Color3.fromRGB(0, 140, 255) or Color3.fromRGB(30, 34, 45)
-            b.TextColor3 = (n == name) and Color3.new(1,1,1) or Color3.fromRGB(180, 180, 180)
+local function GetBall()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name:lower():find("ball") and obj:IsA("BasePart") then
+            return obj
         end
-        for _, child in pairs(Content:GetChildren()) do
-            if child:IsA("Frame") then
-                child.Visible = child:GetAttribute("Tab") == name
-            end
-        end
-    end)
-end
-
-CreateTab("Hareket")
-CreateTab("Otomatik")
-CreateTab("Görsel")
-CreateTab("Diğer")
-Tabs["Hareket"].BackgroundColor3 = Color3.fromRGB(0, 140, 255)
-Tabs["Hareket"].TextColor3 = Color3.new(1,1,1)
-
--- Toggle Oluşturucu
-local function CreateToggle(tabName, text, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 40)
-    frame.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
-    frame.BorderSizePixel = 0
-    frame:SetAttribute("Tab", tabName)
-    frame.Visible = (tabName == "Hareket")
-    frame.Parent = Content
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.7, 0, 1, 0)
-    label.Position = UDim2.new(0, 12, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = Color3.fromRGB(230, 230, 230)
-    label.TextSize = 14
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 54, 0, 26)
-    btn.Position = UDim2.new(1, -66, 0.5, -13)
-    btn.BackgroundColor3 = default and Color3.fromRGB(0, 170, 90) or Color3.fromRGB(55, 60, 75)
-    btn.Text = default and "ON" or "OFF"
-    btn.TextColor3 = Color3.new(1,1,1)
-    btn.TextSize = 12
-    btn.Font = Enum.Font.GothamBold
-    btn.Parent = frame
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
-    local state = default
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        btn.Text = state and "ON" or "OFF"
-        btn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 90) or Color3.fromRGB(55, 60, 75)
-        callback(state)
-    end)
-end
-
--- Slider Oluşturucu
-local function CreateSlider(tabName, text, min, max, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 56)
-    frame.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
-    frame.BorderSizePixel = 0
-    frame:SetAttribute("Tab", tabName)
-    frame.Visible = (tabName == "Hareket")
-    frame.Parent = Content
-    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -16, 0, 22)
-    label.Position = UDim2.new(0, 12, 0, 4)
-    label.BackgroundTransparency = 1
-    label.Text = text .. ": " .. string.format("%.2f", default)
-    label.TextColor3 = Color3.fromRGB(230, 230, 230)
-    label.TextSize = 13
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(1, -24, 0, 10)
-    bar.Position = UDim2.new(0, 12, 0, 32)
-    bar.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-    bar.BorderSizePixel = 0
-    bar.Parent = frame
-    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
-
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((default-min)/(max-min), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = bar
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-
-    local dragging = false
-    bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local pos = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-            fill.Size = UDim2.new(pos, 0, 1, 0)
-            local value = min + (max - min) * pos
-            label.Text = text .. ": " .. string.format("%.2f", value)
-            callback(value)
-        end
-    end)
-end
-
--- ==================== ÖZELLİKLERİ OLUŞTUR ====================
-
--- Hareket Sekmesi
-CreateToggle("Hareket", L.InfiniteStamina, false, function(v) Settings.InfiniteStamina = v end)
-CreateToggle("Hareket", L.AutoSprint, false, function(v) Settings.AutoSprint = v end)
-CreateToggle("Hareket", L.NoBallSlowdown, false, function(v) Settings.NoBallSlowdown = v end)
-CreateToggle("Hareket", L.InfiniteJump, false, function(v) Settings.InfiniteJump = v end)
-CreateToggle("Hareket", L.Fly, false, function(v) Settings.Fly = v end)
-CreateSlider("Hareket", L.SpeedMultiplier, 1, 2.8, 1, function(v) Settings.SpeedMultiplier = v end)
-CreateSlider("Hareket", L.FlySpeed, 25, 140, 55, function(v) Settings.FlySpeed = v end)
-
--- Otomatik Sekmesi
-CreateToggle("Otomatik", L.AutoGoalkeeper, false, function(v) Settings.AutoGoalkeeper = v end)
-CreateToggle("Otomatik", L.AutoDive, true, function(v) Settings.AutoDive = v end)
-CreateToggle("Otomatik", L.AutoDribble, false, function(v) Settings.AutoDribble = v end)
-CreateToggle("Otomatik", L.AutoTackle, false, function(v) Settings.AutoTackle = v end)
-CreateToggle("Otomatik", L.PerfectShot, false, function(v) Settings.PerfectShot = v end)
-CreateToggle("Otomatik", L.GoalSilentAim, false, function(v) Settings.GoalSilentAim = v end)
-CreateToggle("Otomatik", L.AutoVolley, false, function(v) Settings.AutoVolley = v end)
-CreateToggle("Otomatik", L.AutoPass, false, function(v) Settings.AutoPass = v end)
-CreateToggle("Otomatik", L.CurveShot, false, function(v) Settings.CurveShot = v end)
-CreateToggle("Otomatik", L.AutoSombrero, false, function(v) Settings.AutoSombrero = v end)
-CreateToggle("Otomatik", L.TackleAimbot, false, function(v) Settings.TackleAimbot = v end)
-CreateToggle("Otomatik", L.AutoClear, false, function(v) Settings.AutoClear = v end)
-CreateToggle("Otomatik", L.PositioningAssist, false, function(v) Settings.PositioningAssist = v end)
-CreateToggle("Otomatik", L.SmartAutoItem, false, function(v) Settings.SmartAutoItem = v end)
-
--- Görsel Sekmesi
-CreateToggle("Görsel", L.BallESP, false, function(v) Settings.BallESP = v end)
-CreateToggle("Görsel", L.PlayerESP, false, function(v) Settings.PlayerESP = v end)
-CreateToggle("Görsel", L.Fullbright, false, function(v)
-    Settings.Fullbright = v
-    if v then
-        Lighting.Brightness = 2.2
-        Lighting.ClockTime = 14
-        Lighting.FogEnd = 100000
-        Lighting.GlobalShadows = false
-    else
-        Lighting.Brightness = 1
-        Lighting.FogEnd = 1000
-        Lighting.GlobalShadows = true
     end
-end)
-CreateToggle("Görsel", L.BallTrajectory, false, function(v) Settings.BallTrajectory = v end)
-CreateToggle("Görsel", L.Radar, false, function(v) Settings.Radar = v end)
-CreateToggle("Görsel", L.FPSBooster, false, function(v)
-    Settings.FPSBooster = v
-    if v then
-        settings().Rendering.QualityLevel = 1
-    end
-end)
-
--- Diğer Sekmesi
-CreateToggle("Diğer", L.AntiRagdoll, false, function(v) Settings.AntiRagdoll = v end)
-CreateToggle("Diğer", L.AntiKnockback, false, function(v) Settings.AntiKnockback = v end)
-CreateToggle("Diğer", L.AntiAFK, true, function(v) Settings.AntiAFK = v end)
-CreateToggle("Diğer", L.BanProtection, true, function(v) Settings.BanProtection = v end)
-
--- Karakter
-local Character, Humanoid, RootPart
-local function UpdateChar()
-    Character = LocalPlayer.Character
-    if Character then
-        Humanoid = Character:FindFirstChildOfClass("Humanoid")
-        RootPart = Character:FindFirstChild("HumanoidRootPart")
-    end
+    return nil
 end
-UpdateChar()
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    UpdateChar()
-end)
 
--- Basit özellik loop'u (temel olanlar)
-RunService.Heartbeat:Connect(function()
-    if not Humanoid or not RootPart then return end
+local function AddConnection(conn)
+    table.insert(State.Connections, conn)
+    return conn
+end
 
-    if Settings.SpeedMultiplier > 1 or Settings.AutoSprint then
-        Humanoid.WalkSpeed = 16 * math.max(Settings.SpeedMultiplier, Settings.AutoSprint and 1.35 or 1)
+-- ============================================================
+-- UI CREATION (Mobile Friendly)
+-- ============================================================
+local function CreateUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "LessHub_UI"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = CoreGui
+
+    -- Floating Button
+    local floatBtn = Instance.new("TextButton")
+    floatBtn.Name = "FloatButton"
+    floatBtn.Size = UDim2.new(0, 60, 0, 60)
+    floatBtn.Position = UDim2.new(0, 20, 0.5, -30)
+    floatBtn.BackgroundColor3 = CONFIG.Colors.Primary
+    floatBtn.BackgroundTransparency = 0.1
+    floatBtn.BorderSizePixel = 0
+    floatBtn.Text = "LH"
+    floatBtn.TextColor3 = CONFIG.Colors.Text
+    floatBtn.Font = CONFIG.Fonts.Title
+    floatBtn.TextSize = 22
+    floatBtn.AutoButtonColor = false
+    floatBtn.Active = true
+    floatBtn.Draggable = true
+    floatBtn.Parent = screenGui
+
+    local floatCorner = Instance.new("UICorner")
+    floatCorner.CornerRadius = UDim.new(0, 16)
+    floatCorner.Parent = floatBtn
+
+    local floatStroke = Instance.new("UIStroke")
+    floatStroke.Color = CONFIG.Colors.Primary
+    floatStroke.Thickness = 2
+    floatStroke.Transparency = 0.5
+    floatStroke.Parent = floatBtn
+
+    -- Main Panel
+    local mainPanel = Instance.new("Frame")
+    mainPanel.Name = "MainPanel"
+    mainPanel.Size = UDim2.new(0, 360, 0, 520)
+    mainPanel.Position = UDim2.new(0.5, -180, 0.5, -260)
+    mainPanel.BackgroundColor3 = CONFIG.Colors.Background
+    mainPanel.BackgroundTransparency = 0.05
+    mainPanel.BorderSizePixel = 0
+    mainPanel.Visible = false
+    mainPanel.Active = true
+    mainPanel.Draggable = true
+    mainPanel.Parent = screenGui
+
+    local panelCorner = Instance.new("UICorner")
+    panelCorner.CornerRadius = UDim.new(0, 14)
+    panelCorner.Parent = mainPanel
+
+    local panelStroke = Instance.new("UIStroke")
+    panelStroke.Color = CONFIG.Colors.Primary
+    panelStroke.Thickness = 1.5
+    panelStroke.Transparency = 0.6
+    panelStroke.Parent = mainPanel
+
+    -- Header
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 52)
+    header.BackgroundColor3 = CONFIG.Colors.Surface
+    header.BackgroundTransparency = 0.3
+    header.BorderSizePixel = 0
+    header.Parent = mainPanel
+
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 14)
+    headerCorner.Parent = header
+
+    local headerFix = Instance.new("Frame")
+    headerFix.Size = UDim2.new(1, 0, 0, 14)
+    headerFix.Position = UDim2.new(0, 0, 1, -14)
+    headerFix.BackgroundColor3 = CONFIG.Colors.Surface
+    headerFix.BackgroundTransparency = 0.3
+    headerFix.BorderSizePixel = 0
+    headerFix.Parent = header
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -60, 0, 32)
+    title.Position = UDim2.new(0, 18, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "LessHub"
+    title.TextColor3 = CONFIG.Colors.Text
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Font = CONFIG.Fonts.Title
+    title.TextSize = 22
+    title.Parent = header
+
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(1, -60, 0, 16)
+    subtitle.Position = UDim2.new(0, 18, 0, 34)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = "Illegal Soccer"
+    subtitle.TextColor3 = CONFIG.Colors.TextDim
+    subtitle.TextXAlignment = Enum.TextXAlignment.Left
+    subtitle.Font = CONFIG.Fonts.Body
+    subtitle.TextSize = 12
+    subtitle.Parent = header
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 36, 0, 36)
+    closeBtn.Position = UDim2.new(1, -46, 0, 8)
+    closeBtn.BackgroundColor3 = CONFIG.Colors.Danger
+    closeBtn.BackgroundTransparency = 0.8
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = CONFIG.Colors.Text
+    closeBtn.Font = CONFIG.Fonts.Body
+    closeBtn.TextSize = 18
+    closeBtn.Parent = header
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = closeBtn
+
+    -- Scrolling Content
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, -24, 1, -72)
+    scrollFrame.Position = UDim2.new(0, 12, 0, 60)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.BorderSizePixel = 0
+    scrollFrame.ScrollBarThickness = 4
+    scrollFrame.ScrollBarImageColor3 = CONFIG.Colors.Primary
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scrollFrame.Parent = mainPanel
+
+    local scrollLayout = Instance.new("UIListLayout")
+    scrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    scrollLayout.Padding = UDim.new(0, 8)
+    scrollLayout.Parent = scrollFrame
+
+    local scrollPadding = Instance.new("UIPadding")
+    scrollPadding.PaddingTop = UDim.new(0, 4)
+    scrollPadding.PaddingBottom = UDim.new(0, 12)
+    scrollPadding.Parent = scrollFrame
+
+    -- ========================================================
+    -- UI HELPERS
+    -- ========================================================
+    local function CreateSection(name)
+        local section = Instance.new("Frame")
+        section.Size = UDim2.new(1, 0, 0, 0)
+        section.BackgroundTransparency = 1
+        section.AutomaticSize = Enum.AutomaticSize.Y
+        section.Parent = scrollFrame
+
+        local layout = Instance.new("UIListLayout")
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 6)
+        layout.Parent = section
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 0, 24)
+        label.BackgroundTransparency = 1
+        label.Text = name
+        label.TextColor3 = CONFIG.Colors.Primary
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Font = CONFIG.Fonts.Title
+        label.TextSize = 14
+        label.Parent = section
+        return section
     end
 
-    if Settings.InfiniteStamina then
-        pcall(function()
-            for _, v in pairs(Character:GetDescendants()) do
-                if v:IsA("NumberValue") and v.Name:lower():find("stamina") then
-                    v.Value = 100
-                end
+    local function CreateToggle(parent, name, default, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 40)
+        frame.BackgroundColor3 = CONFIG.Colors.Surface
+        frame.BackgroundTransparency = 0.4
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = frame
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -70, 1, 0)
+        label.Position = UDim2.new(0, 12, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = name
+        label.TextColor3 = CONFIG.Colors.Text
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Font = CONFIG.Fonts.Body
+        label.TextSize = 13
+        label.Parent = frame
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 48, 0, 26)
+        btn.Position = UDim2.new(1, -60, 0.5, -13)
+        btn.BackgroundColor3 = default and CONFIG.Colors.Primary or CONFIG.Colors.TextDim
+        btn.BackgroundTransparency = default and 0.2 or 0.6
+        btn.BorderSizePixel = 0
+        btn.Text = default and "ON" or "OFF"
+        btn.TextColor3 = CONFIG.Colors.Text
+        btn.Font = CONFIG.Fonts.Title
+        btn.TextSize = 10
+        btn.Parent = frame
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 6)
+        btnCorner.Parent = btn
+
+        local isOn = default
+        btn.MouseButton1Click:Connect(function()
+            isOn = not isOn
+            btn.Text = isOn and "ON" or "OFF"
+            TweenService:Create(btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = isOn and CONFIG.Colors.Primary or CONFIG.Colors.TextDim,
+                BackgroundTransparency = isOn and 0.2 or 0.6,
+            }):Play()
+            if callback then callback(isOn) end
+        end)
+        return frame
+    end
+
+    local function CreateSlider(parent, name, min, max, default, suffix, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 56)
+        frame.BackgroundColor3 = CONFIG.Colors.Surface
+        frame.BackgroundTransparency = 0.4
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = frame
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -80, 0, 20)
+        label.Position = UDim2.new(0, 12, 0, 6)
+        label.BackgroundTransparency = 1
+        label.Text = name
+        label.TextColor3 = CONFIG.Colors.Text
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Font = CONFIG.Fonts.Body
+        label.TextSize = 13
+        label.Parent = frame
+
+        local valLabel = Instance.new("TextLabel")
+        valLabel.Size = UDim2.new(0, 70, 0, 20)
+        valLabel.Position = UDim2.new(1, -82, 0, 6)
+        valLabel.BackgroundTransparency = 1
+        valLabel.Text = tostring(default) .. suffix
+        valLabel.TextColor3 = CONFIG.Colors.Primary
+        valLabel.TextXAlignment = Enum.TextXAlignment.Right
+        valLabel.Font = CONFIG.Fonts.Mono
+        valLabel.TextSize = 12
+        valLabel.Parent = frame
+
+        local track = Instance.new("Frame")
+        track.Size = UDim2.new(1, -24, 0, 6)
+        track.Position = UDim2.new(0, 12, 0, 34)
+        track.BackgroundColor3 = CONFIG.Colors.TextDim
+        track.BackgroundTransparency = 0.7
+        track.BorderSizePixel = 0
+        track.Parent = frame
+
+        local trackCorner = Instance.new("UICorner")
+        trackCorner.CornerRadius = UDim.new(0, 3)
+        trackCorner.Parent = track
+
+        local fill = Instance.new("Frame")
+        fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+        fill.BackgroundColor3 = CONFIG.Colors.Primary
+        fill.BorderSizePixel = 0
+        fill.Parent = track
+
+        local fillCorner = Instance.new("UICorner")
+        fillCorner.CornerRadius = UDim.new(0, 3)
+        fillCorner.Parent = fill
+
+        local current = default
+        local dragging = false
+
+        local function updateFromX(x)
+            local rel = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+            local val = math.floor(min + (max - min) * rel + 0.5)
+            current = val
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            valLabel.Text = tostring(val) .. suffix
+            if callback then callback(val) end
+        end
+
+        track.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                updateFromX(input.Position.X)
             end
         end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                updateFromX(input.Position.X)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+        return frame
     end
 
-    if Settings.AntiRagdoll then
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-    end
-end)
+    local function CreateButton(parent, name, color, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 40)
+        btn.BackgroundColor3 = color or CONFIG.Colors.Primary
+        btn.BackgroundTransparency = 0.2
+        btn.BorderSizePixel = 0
+        btn.Text = name
+        btn.TextColor3 = CONFIG.Colors.Text
+        btn.Font = CONFIG.Fonts.Title
+        btn.TextSize = 13
+        btn.Parent = parent
 
-print("LessHub başarıyla yüklendi!")
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = btn
+
+        btn.MouseButton1Click:Connect(function()
+            if callback then callback() end
+        end)
+        return btn
+    end
+
+    -- ========================================================
+    -- SECTIONS
+    -- ========================================================
+
+    -- MOVEMENT
+    local movement = CreateSection("MOVEMENT")
+    CreateToggle(movement, "Enable WalkSpeed", false, function(on)
+        State.WalkSpeedEnabled = on
+        local _, hum = GetCharacter()
+        if hum then hum.WalkSpeed = on and State.WalkSpeedValue or 16 end
+    end)
+    CreateSlider(movement, "WalkSpeed", 16, 150, 16, "", function(v)
+        State.WalkSpeedValue = v
+        if State.WalkSpeedEnabled then
+            local _, hum = GetCharacter()
+            if hum then hum.WalkSpeed = v end
+        end
+    end)
+    CreateToggle(movement, "Enable JumpPower", false, function(on)
+        State.JumpPowerEnabled = on
+        local _, hum = GetCharacter()
+        if hum then
+            hum.UseJumpPower = true
+            hum.JumpPower = on and State.JumpPowerValue or 50
+        end
+    end)
+    CreateSlider(movement, "JumpPower", 50, 250, 50, "", function(v)
+        State.JumpPowerValue = v
+        if State.JumpPowerEnabled then
+            local _, hum = GetCharacter()
+            if hum then hum.JumpPower = v end
+        end
+    end)
+    CreateToggle(movement, "Infinite Jump", false, function(on)
+        State.InfiniteJumpEnabled = on
+    end)
+    -- Infinite Jump handler
+    AddConnection(UserInputService.JumpRequest:Connect(function()
+        if State.InfiniteJumpEnabled then
+            local _, hum = GetCharacter()
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+        end
+    end))
+    CreateToggle(movement, "Fly (Experimental)", false, function(on)
+        State.FlyEnabled = on
+        -- Fly implementation (basit)
+        local char, hum = GetCharacter()
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        if on then
+            local bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+            bv.Velocity = Vector3.zero
+            bv.Parent = root
+            AddConnection(RunService.Heartbeat:Connect(function()
+                if not State.FlyEnabled then bv:Destroy() return end
+                bv.Velocity = Vector3.new(0, 50, 0) -- basit yukarı uçuş
+            end))
+        end
+    end)
+    CreateToggle(movement, "Noclip", false, function(on)
+        State.NoclipEnabled = on
+        AddConnection(RunService.Stepped:Connect(function()
+            if not State.NoclipEnabled then return end
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end))
+    end)
+
+    -- COMBAT / AIMBOT
+    local combat = CreateSection("COMBAT / AIMBOT")
+    CreateToggle(combat, "Aimbot (Goal)", false, function(on) State.AimbotEnabled = on end)
+    CreateSlider(combat, "Aimbot Delay (ms)", 0, 500, 100, "ms", function(v) State.AimbotDelay = v end)
+    CreateSlider(combat, "Aimbot Range (studs)", 10, 200, 50, "", function(v) State.AimbotRange = v end)
+    CreateToggle(combat, "Silent Aim", false, function(on) State.SilentAimEnabled = on end)
+    CreateSlider(combat, "Silent Aim Delay (ms)", 0, 300, 50, "ms", function(v) State.SilentAimDelay = v end)
+    CreateSlider(combat, "Silent Aim Range (studs)", 10, 300, 100, "", function(v) State.SilentAimRange = v end)
+
+    -- AUTO / GOAL
+    local auto = CreateSection("AUTO / GOAL")
+    CreateToggle(auto, "Auto Goal", false, function(on) State.AutoGoalEnabled = on end)
+    CreateSlider(auto, "Auto Goal Delay (ms)", 50, 1000, 200, "ms", function(v) State.AutoGoalDelay = v end)
+    CreateToggle(auto, "Auto Dribble", false, function(on) State.AutoDribbleEnabled = on end)
+    CreateSlider(auto, "Auto Dribble Range (studs)", 5, 100, 30, "", function(v) State.AutoDribbleRange = v end)
+    CreateToggle(auto, "Auto Goalkeeper", false, function(on) State.AutoGoalkeeperEnabled = on end)
+    CreateSlider(auto, "Goalkeeper Range (studs)", 5, 50, 20, "", function(v) State.AutoGoalkeeperRange = v end)
+    CreateToggle(auto, "Auto Dive", false, function(on) State.AutoDiveEnabled = on end)
+    CreateSlider(a
