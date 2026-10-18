@@ -537,4 +537,277 @@ local function CreateUI()
     CreateToggle(auto, "Auto Goalkeeper", false, function(on) State.AutoGoalkeeperEnabled = on end)
     CreateSlider(auto, "Goalkeeper Range (studs)", 5, 50, 20, "", function(v) State.AutoGoalkeeperRange = v end)
     CreateToggle(auto, "Auto Dive", false, function(on) State.AutoDiveEnabled = on end)
-    CreateSlider(a
+    CreateSlider(auto, "Auto Dive Delay (ms)", 0, 500, 150, "ms", function(v) State.AutoDiveDelay = v end)
+    CreateToggle(auto, "Autoplay", false, function(on) State.AutoplayEnabled = on end)
+
+    -- FAKE / PERFECT SHOT
+    local shot = CreateSection("FAKE / PERFECT SHOT")
+    CreateToggle(shot, "Fake Shoot", false, function(on) State.FakeShootEnabled = on end)
+    CreateSlider(shot, "Fake Shoot Delay (ms)", 0, 500, 150, "ms", function(v) State.FakeShootDelay = v end)
+    CreateToggle(shot, "Perfect Shoot", false, function(on) State.PerfectShootEnabled = on end)
+    CreateToggle(shot, "Perfect Curve", false, function(on) State.PerfectCurveEnabled = on end)
+    CreateToggle(shot, "Auto Wall Fake Shoot", false, function(on) State.AutoWallFakeShootEnabled = on end)
+
+    -- RESOURCES
+    local res = CreateSection("RESOURCES")
+    CreateToggle(res, "Infinite Stamina (Experimental)", false, function(on) State.InfiniteStaminaEnabled = on end)
+    CreateToggle(res, "Godmode (Local)", false, function(on) State.GodmodeEnabled = on end)
+
+    -- ESP / UTILITY
+    local util = CreateSection("ESP / UTILITY")
+    CreateToggle(util, "Item ESP", false, function(on) State.ItemESPEnabled = on end)
+    CreateToggle(util, "Player ESP", false, function(on) State.PlayerESPEnabled = on end)
+    CreateToggle(util, "Auto Item Use", false, function(on) State.AutoItemUseEnabled = on end)
+    CreateToggle(util, "Item Aimbot (Freeze Gun)", false, function(on) State.ItemAimbotEnabled = on end)
+    CreateSlider(util, "Item Aimbot Range (studs)", 5, 100, 40, "", function(v) State.ItemAimbotRange = v end)
+    CreateButton(util, "Teleport to Ball", CONFIG.Colors.Primary, function()
+        local ball = GetBall()
+        local char = LocalPlayer.Character
+        if ball and char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then root.CFrame = ball.CFrame + Vector3.new(0, 5, 0) end
+        end
+    end)
+    CreateButton(util, "Reset Character", CONFIG.Colors.Danger, function()
+        local _, hum = GetCharacter()
+        if hum then hum.Health = 0 end
+    end)
+
+    -- SECURITY
+    local sec = CreateSection("SECURITY")
+    CreateToggle(sec, "Anti-Ban (Basic)", false, function(on) State.AntiBanEnabled = on end)
+    CreateButton(sec, "Server Hop", CONFIG.Colors.Warning, function()
+        -- Basit server hop (TeleportService)
+        local TeleportService = game:GetService("TeleportService")
+        local placeId = game.PlaceId
+        local servers = {}
+        local success, err = pcall(function()
+            servers = TeleportService:GetGameServers(placeId, Enum.ServerType.Public, 100)
+        end)
+        if success and #servers > 0 then
+            local random = servers[math.random(1, #servers)]
+            TeleportService:TeleportToPlaceInstance(placeId, random.Id, LocalPlayer)
+        end
+    end)
+
+    -- INFO
+    local info = CreateSection("INFO")
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, 0, 0, 80)
+    infoLabel.BackgroundColor3 = CONFIG.Colors.Surface
+    infoLabel.BackgroundTransparency = 0.4
+    infoLabel.BorderSizePixel = 0
+    infoLabel.Text = "⚠ Bu script istemci taraflıdır. Sunucu doğrulaması\nolan özellikler (Infinite Stamina, Auto Goal, Silent Aim)\nher sunucuda çalışmayabilir. Kullanım riski size aittir."
+    infoLabel.TextColor3 = CONFIG.Colors.TextDim
+    infoLabel.Font = CONFIG.Fonts.Body
+    infoLabel.TextSize = 11
+    infoLabel.TextWrapped = true
+    infoLabel.Parent = info
+    local infoCorner = Instance.new("UICorner")
+    infoCorner.CornerRadius = UDim.new(0, 8)
+    infoCorner.Parent = infoLabel
+
+    -- ========================================================
+    -- PANEL TOGGLE
+    -- ========================================================
+    local function TogglePanel(open)
+        State.Open = open
+        mainPanel.Visible = open
+        if open then
+            mainPanel.Size = UDim2.new(0, 320, 0, 440)
+            mainPanel.BackgroundTransparency = 1
+            TweenService:Create(mainPanel, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0, 360, 0, 520),
+                BackgroundTransparency = 0.05,
+            }):Play()
+        end
+    end
+
+    floatBtn.MouseButton1Click:Connect(function() TogglePanel(not State.Open) end)
+    closeBtn.MouseButton1Click:Connect(function() TogglePanel(false) end)
+
+    -- Mobile drag support for floating button
+    local dragStart = nil
+    floatBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then dragStart = input.Position end
+    end)
+    floatBtn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and dragStart then
+            local delta = input.Position - dragStart
+            if delta.Magnitude < 10 then TogglePanel(not State.Open) end
+            dragStart = nil
+        end
+    end)
+
+    return screenGui
+end
+
+-- ============================================================
+-- LOGIC LOOPS (Aimbot, Auto Goal, vb.)
+-- ============================================================
+local function StartLoops()
+    -- Aimbot Logic (Goal)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.AimbotEnabled then return end
+        local char, hum = GetCharacter()
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        -- En yakın rakibi bul (basit)
+        local closest = nil
+        local closestDist = State.AimbotRange
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local dist = (targetRoot.Position - root.Position).Magnitude
+                    if dist < closestDist then
+                        closest = targetRoot
+                        closestDist = dist
+                    end
+                end
+            end
+        end
+        if closest then
+            task.wait(State.AimbotDelay / 1000)
+            -- Basit yönlendirme (kamera veya Humanoid hedefi)
+            hum:MoveTo(closest.Position) -- Bu, hedefe doğru hareket eder, gerçek aimbot değil ama bir başlangıç
+        end
+    end))
+
+    -- Silent Aim (Placeholder: sadece bir mesaj)
+    -- Gerçek silent aim için oyunun nişan alma fonksiyonunu hooklamak gerekir.
+
+    -- Infinite Stamina (Placeholder: Humanoid'de stamina yok, bu yüzden sadece bir değer arıyoruz)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.InfiniteStaminaEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        -- Oyunun stamina değerini tutan bir IntValue/NumberValue ara
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("NumberValue") and obj.Name:lower():find("stamina") then
+                obj.Value = math.huge
+            end
+        end
+    end))
+
+    -- Godmode (Local)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.GodmodeEnabled then return end
+        local _, hum = GetCharacter()
+        if hum then hum.Health = hum.MaxHealth end
+    end))
+
+    -- Auto Goalkeeper (Basit: kaleye yakın dur)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.AutoGoalkeeperEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        -- Kaleyi bul (basit varsayım: "Goal" içeren bir parça)
+        local goal = nil
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj.Name:lower():find("goal") and obj:IsA("BasePart") then
+                goal = obj
+                break
+            end
+        end
+        if goal then
+            local dist = (goal.Position - root.Position).Magnitude
+            if dist > State.AutoGoalkeeperRange then
+                root.CFrame = CFrame.lookAt(goal.Position + Vector3.new(0, 3, 0), goal.Position)
+            end
+        end
+    end))
+
+    -- Item ESP (Basit: eşyaları vurgula)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.ItemESPEnabled then return end
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and (obj.Name:lower():find("item") or obj.Name:lower():find("box") or obj.Name:lower():find("gun")) then
+                local billboard = obj:FindFirstChild("LessHubESP")
+                if not billboard then
+                    billboard = Instance.new("BillboardGui")
+                    billboard.Name = "LessHubESP"
+                    billboard.Size = UDim2.new(0, 100, 0, 50)
+                    billboard.AlwaysOnTop = true
+                    billboard.Parent = obj
+                    local text = Instance.new("TextLabel")
+                    text.Size = UDim2.new(1, 0, 1, 0)
+                    text.BackgroundTransparency = 1
+                    text.Text = obj.Name
+                    text.TextColor3 = Color3.new(1, 1, 0)
+                    text.Parent = billboard
+                end
+            end
+        end
+    end))
+
+    -- Player ESP (Basit: oyuncuları vurgula)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.PlayerESPEnabled then return end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local billboard = root:FindFirstChild("LessHubPlayerESP")
+                    if not billboard then
+                        billboard = Instance.new("BillboardGui")
+                        billboard.Name = "LessHubPlayerESP"
+                        billboard.Size = UDim2.new(0, 100, 0, 50)
+                        billboard.AlwaysOnTop = true
+                        billboard.Parent = root
+                        local text = Instance.new("TextLabel")
+                        text.Size = UDim2.new(1, 0, 1, 0)
+                        text.BackgroundTransparency = 1
+                        text.Text = player.Name
+                        text.TextColor3 = Color3.new(1, 0, 0)
+                        text.Parent = billboard
+                    end
+                end
+            end
+        end
+    end))
+
+    -- Auto Item Use (Basit: eşyaları otomatik topla)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.AutoItemUseEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and (obj.Name:lower():find("item") or obj.Name:lower():find("box")) then
+                local dist = (obj.Position - root.Position).Magnitude
+                if dist < 10 then
+                    firetouchinterest(root, obj, 0)
+                end
+            end
+        end
+    end))
+
+    -- Autoplay (Basit: topa doğru hareket et ve şut çek)
+    AddConnection(RunService.Heartbeat:Connect(function()
+        if not State.AutoplayEnabled then return end
+        local char, hum = GetCharacter()
+        if not hum then return end
+        local ball = GetBall()
+        if ball then
+            hum:MoveTo(ball.Position)
+        end
+    end))
+end
+
+-- ============================================================
+-- INIT
+-- ============================================================
+local success, err = pcall(function()
+    CreateUI()
+    StartLoops()
+end)
+
+if not success then
+    warn("[LessHub] Error: " .. tostring(err))
+end
