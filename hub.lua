@@ -1,819 +1,973 @@
---[[
-    ============================================================================
-    ILLEGAL SOCCER - EDUCATIONAL TRAINING INTERFACE (MOBILE OPTIMIZED)
-    ============================================================================
-    Target Environment: Delta Executor (Mobile), Fluxus, Codex
-    Version: 1.0.0-edu
-    Usage: Loadstring or paste directly into executor. Educational sandbox only.
-    
-    DESCRIPTION:
-    A self-contained UI module for analyzing soccer physics, trajectory prediction,
-    and input smoothing mechanics in a controlled test environment.
-    All features are toggleable and adjustable via GUI. No hardcoded values.
-    ============================================================================
-]]
+--==============================================================================--
+--  LessHub - Illegal Soccer (Personal Research & Optimization Suite)
+--  Target Executor: Delta (Mobile First / Android/iOS), Synapse, Wave, KRNL, Solara
+--  Version: 1.0.0
+--  Usage: loadstring(game:HttpGet("https://raw.githubusercontent.com/..."))()
+--==============================================================================--
 
--- // SERVICES & GLOBALS
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- // SAFE PCALL WRAPPER FOR EXECUTOR SPECIFIC FUNCTIONS
-local function safeCall(funcName, ...)
-    if type(_G[funcName]) == "function" then
-        local success, result = pcall(_G[funcName], ...)
-        if not success then
-            warn(string.format("[EduPanel] %s failed: %s", funcName, tostring(result)))
-        end
-        return success, result
-    elseif type(getgenv()[funcName]) == "function" then
-        local success, result = pcall(getgenv()[funcName], ...)
-        if not success then
-            warn(string.format("[EduPanel] %s failed: %s", funcName, tostring(result)))
-        end
-        return success, result
-    else
-        warn(string.format("[EduPanel] %s not available in this environment.", funcName))
-        return false, nil
-    end
-end
-
--- // CONFIGURATION STATE
+--------------------------------------------------------------------------------
+-- CONFIGURATION & STATE SYSTEM
+--------------------------------------------------------------------------------
 local Config = {
-    Key = "",
-    Validated = false,
-    Combat = {
-        ShotAssist = { Enabled = false, Power = 65, Height = 2, AutoDist = 30 },
-        AimSmooth = { Enabled = false, Strength = 0.1 },
-        Curve = { Enabled = false, Force = 50, Direction = "Auto" }, -- Left, Right, Auto
-        DribbleAssist = { Enabled = false, Range = 25, Speed = 18, Boost = 1.2 },
-        CombinedShot = { Enabled = false, Multiplier = 1.0, MaxCap = 95 },
-        AutoGuide = { Enabled = false, Force = 15 }
-    },
-    Defense = {
-        GKPosAssist = { Enabled = false, Reaction = 0.3, Dist = 12, Predict = 1.5 },
-        StaminaHelper = { Enabled = false, WalkSpeed = 24 },
-        AntiStun = { Enabled = false, Recovery = 0.8 },
-        BallAttract = { Enabled = false, Radius = 15, Pull = 8 }
-    },
-    Visuals = {
-        BallHighlight = { Enabled = false, Color = Color3.fromRGB(255, 255, 0) },
-        PlayerHighlight = { Enabled = false, ShowTeam = true },
-        GoalHighlight = { Enabled = false, Opacity = 0.3 },
-        TrajectoryLine = { Enabled = false, Segments = 20 }
-    },
-    Misc = {
-        StabilityLayer = { Enabled = false, Jitter = 0.02, SafeMode = false },
-        PerfOptimizer = { Enabled = false },
-        IdlePrevent = { Enabled = false },
-        Reconnect = false -- Trigger only
-    },
-    Settings = {
-        SavedQuality = 1
-    }
+    -- Key System
+    KeyValidated = false,
+    
+    -- Combat Settings
+    ShotAssist = false,
+    ShotPower = 80,
+    ShotHeight = "Middle", -- Ground, Middle, TopCorner
+    AutoShotDistance = 15,
+    
+    AimSmoothing = false,
+    AimPower = 5,
+    
+    CurveEnabled = false,
+    CurvePower = 50,
+    CurveDirection = "Auto", -- Left, Right, Auto
+    
+    DribbleAssist = false,
+    DribbleDistance = 12,
+    DribbleSpeed = 20,
+    
+    CombinedShot = false,
+    CombinedMultiplier = 1.2,
+    
+    AutoScoreGuidance = false,
+    GuidancePower = 15,
+    
+    -- Defense Settings
+    GKAssist = false,
+    GKReactionTime = 0.2,
+    GKWalkDistance = 25,
+    GKPredictionTime = 1.5,
+    
+    StaminaHelper = false,
+    WalkSpeedBoost = 20,
+    
+    AntiStun = false,
+    AntiStunPower = 10,
+    
+    BallAttraction = false,
+    AttractionRadius = 15,
+    AttractionForce = 30,
+    
+    -- Visuals
+    BallHighlight = false,
+    PlayerHighlight = false,
+    GoalHighlight = false,
+    TrajectoryLine = false,
+    
+    -- Misc
+    StabilityLayer = false,
+    SafeMode = false,
+    PerformanceOptimizer = false,
+    IdlePrevent = false,
+    
+    -- Hidden runtime states
+    OriginalWalkSpeed = 16,
+    IsSafeModeActive = false
 }
 
--- Default backup for reset
-local DefaultConfig = table.clone(Config)
+local SafeConfig = {}
+local HiddenVisualObjects = {}
+local OriginalLightingSettings = {
+    GlobalShadows = Lighting.GlobalShadows,
+    ShadowSoftness = Lighting.ShadowSoftness
+}
 
--- // FILE IO HANDLER
-local function saveConfig()
-    local json = HttpService:JSONEncode(Config)
-    safeCall("writefile", "IllegalSoccer_EduConfig.json", json)
-end
-
-local function loadConfig()
-    local success, data = safeCall("readfile", "IllegalSoccer_EduConfig.json")
-    if success and data then
-        local parsed = HttpService:JSONDecode(data)
-        -- Merge safely to avoid missing new fields
-        for k, v in pairs(parsed) do
-            if Config[k] ~= nil then Config[k] = v end
-        end
-    end
-end
-
-loadConfig()
-
--- // GAME ENTITY DETECTION CACHE
-local EntityCache = {
+--------------------------------------------------------------------------------
+-- UTILITY & CACHING SYSTEM
+--------------------------------------------------------------------------------
+local Cache = {
     Ball = nil,
     EnemyGoal = nil,
     OwnGoal = nil,
-    LastUpdate = 0
+    LastBallScan = 0,
+    LastGoalScan = 0,
+    AlreadyDoingAction = false
 }
 
-local function findEntityByKeywords(keywords, fallbackFunc)
-    local found = nil
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            local nameLower = obj.Name:lower()
-            for _, kw in ipairs(keywords) do
-                if string.find(nameLower, kw:lower()) then
-                    found = obj
-                    break
-                end
-            end
-        end
-        if found then break end
+local function SafePcall(fn, ...)
+    local success, err = pcall(fn, ...)
+    if not success then
+        warn("[LessHub SafePcall Warning]: " .. tostring(err))
     end
-    if not found and fallbackFunc then found = fallbackFunc() end
-    return found
+    return success, err
 end
 
-local function updateEntityCache()
-    local now = tick()
-    if now - EntityCache.LastUpdate < 2 then return end
-    
-    -- Ball detection
-    if not EntityCache.Ball or not EntityCache.Ball.Parent then
-        EntityCache.Ball = findEntityByKeywords({"ball", "soccer", "football", "top"}, function()
-            -- Fallback: fastest part near field center
-            local best, bestVel = nil, 0
-            for _, p in ipairs(Workspace:GetChildren()) do
-                if p:IsA("BasePart") and p.AssemblyLinearVelocity.Magnitude > bestVel then
-                    bestVel = p.AssemblyLinearVelocity.Magnitude
-                    best = p
-                end
-            end
-            return best
-        end)
+-- Detection: Ball
+local function GetBall()
+    if Cache.Ball and Cache.Ball.Parent and tick() - Cache.LastBallScan < 2 then
+        return Cache.Ball
     end
     
-    -- Goal detection
-    if not EntityCache.EnemyGoal or not EntityCache.EnemyGoal.Parent then
-        local goals = {}
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and (string.find(obj.Name:lower(), "goal") or string.find(obj.Name:lower(), "net")) then
+    Cache.LastBallScan = tick()
+    local bestBall = nil
+    local highestVelocity = -1
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local name = string.lower(obj.Name)
+            if string.find(name, "ball") or string.find(name, "soccer") or string.find(name, "football") or string.find(name, "top") then
+                Cache.Ball = obj
+                return obj
+            end
+            
+            -- Fallback heuristic: High speed physics part near center
+            if obj.Velocity.Magnitude > highestVelocity and obj.Velocity.Magnitude > 5 then
+                highestVelocity = obj.Velocity.Magnitude
+                bestBall = obj
+            end
+        end
+    end
+    
+    Cache.Ball = bestBall
+    return bestBall
+end
+
+-- Detection: Goals & Teams
+local function GetGoals()
+    if Cache.EnemyGoal and Cache.OwnGoal and tick() - Cache.LastGoalScan < 10 then
+        return Cache.EnemyGoal, Cache.OwnGoal
+    end
+    
+    Cache.LastGoalScan = tick()
+    local goals = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            local name = string.lower(obj.Name)
+            if string.find(name, "goal") or string.find(name, "net") or string.find(name, "score") then
                 table.insert(goals, obj)
             end
         end
-        if #goals >= 2 then
-            -- Simple heuristic: furthest from player is enemy goal
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                table.sort(goals, function(a,b) 
-                    return (a.Position - hrp.Position).Magnitude > (b.Position - hrp.Position).Magnitude 
-                end)
-                EntityCache.EnemyGoal = goals[1]
-                EntityCache.OwnGoal = goals[2]
-            end
+    end
+    
+    if #goals >= 2 then
+        -- Assign based on position relative to local player spawn or Z axis
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local pPos = char.HumanoidRootPart.Position
+            table.sort(goals, function(a, b)
+                local posA = a:IsA("Model") and a:GetPivot().Position or a.Position
+                local posB = b:IsA("Model") and b:GetPivot().Position or b.Position
+                return (posA - pPos).Magnitude > (posB - pPos).Magnitude
+            end)
+            Cache.EnemyGoal = goals[1]
+            Cache.OwnGoal = goals[2]
         end
     end
     
-    EntityCache.LastUpdate = now
+    return Cache.EnemyGoal, Cache.OwnGoal
 end
 
--- // PHYSICS & MATH HELPERS
-local function lerp(a, b, t) return a + (b - a) * math.clamp(t, 0, 1) end
-
-local function getJitter(amount)
-    return (math.random() * 2 - 1) * amount
+local function GetEffectiveValue(val, isPower)
+    if Config.SafeMode then
+        return val * 0.6
+    end
+    return val
 end
 
-local function applyStability(value, baseMax)
-    if not Config.Misc.StabilityLayer.Enabled then return value end
-    local jitter = getJitter(Config.Misc.StabilityLayer.Jitter)
-    local final = value * (1 + jitter)
-    if Config.Misc.StabilityLayer.SafeMode then
-        final = math.min(final, baseMax * 0.6)
-    end
-    return final
+--------------------------------------------------------------------------------
+-- FILE SYSTEM (SAVE/LOAD CONFIG)
+--------------------------------------------------------------------------------
+local ConfigFileName = "LessHub_IllegalSoccer_Config.json"
+
+local function SaveConfig()
+    SafePcall(function()
+        if writefile then
+            local data = HttpService:JSONEncode(Config)
+            writefile(ConfigFileName, data)
+        end
+    end)
 end
 
--- // CORE LOGIC MODULES
-local Logic = {}
-
-function Logic.CombatLoop(dt)
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local ball = EntityCache.Ball
-    local goal = EntityCache.EnemyGoal
-    
-    if not (hrp and ball and goal) then return end
-    
-    local distToBall = (hrp.Position - ball.Position).Magnitude
-    local dirToGoal = (goal.Position - ball.Position).Unit
-    
-    -- Dribble Assist
-    if Config.Combat.DribbleAssist.Enabled and distToBall > 4 and distToBall < Config.Combat.DribbleAssist.Range then
-        local moveDir = (ball.Position - hrp.Position).Unit
-        local speed = applyStability(Config.Combat.DribbleAssist.Speed, 30)
-        -- Only move if player isn't already moving towards ball aggressively
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid and humanoid.MoveDirection.Magnitude < 0.3 then
-            humanoid:Move(moveDir, false)
-        end
-    end
-    
-    -- Shot Assist & Combined
-    if (Config.Combat.ShotAssist.Enabled or Config.Combat.CombinedShot.Enabled) and distToBall < Config.Combat.ShotAssist.AutoDist then
-        local power = Config.Combat.ShotAssist.Power
-        if Config.Combat.CombinedShot.Enabled then
-            power = power * Config.Combat.CombinedShot.Multiplier
-            power = math.min(power, Config.Combat.CombinedShot.MaxCap)
-        end
-        power = applyStability(power, 100)
-        
-        local heightMod = Vector3.new(0, Config.Combat.ShotAssist.Height * 0.5, 0)
-        local shotDir = (dirToGoal + heightMod).Unit
-        
-        -- Aim Smoothing integration
-        if Config.Combat.AimSmooth.Enabled then
-            -- In real implementation, this would modify camera/input direction
-            -- Here we simulate by adjusting intended velocity vector slightly
-            shotDir = shotDir:Lerp(dirToGoal, Config.Combat.AimSmooth.Strength)
-        end
-        
-        -- Curve / Falso
-        if Config.Combat.Curve.Enabled then
-            local right = shotDir:Cross(Vector3.yAxis)
-            local curveForce = applyStability(Config.Combat.Curve.Force, 150) / 1000
-            local dir = Config.Combat.Curve.Direction
-            if dir == "Auto" then dir = (math.random() > 0.5) and "Left" or "Right" end
-            local sign = (dir == "Left") and -1 or 1
-            shotDir = (shotDir + right * sign * curveForce).Unit
-        end
-        
-        -- Apply velocity only if user is interacting (simulated check)
-        -- NOTE: We NEVER set AssemblyLinearVelocity directly on networked balls
-        -- This is a placeholder for educational trajectory calculation
-        -- Actual implementation requires server-side validation or client-predicted proxy
-    end
-    
-    -- Auto Score Guidance
-    if Config.Combat.AutoGuide.Enabled and distToBall < 10 then
-        -- Small corrective force simulation
-        -- Again, educational placeholder for physics analysis
-    end
-end
-
-function Logic.DefenseLoop(dt)
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local ball = EntityCache.Ball
-    local ownGoal = EntityCache.OwnGoal
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    
-    if not (hrp and humanoid) then return end
-    
-    -- Stamina Helper
-    if Config.Defense.StaminaHelper.Enabled then
-        if humanoid.WalkSpeed ~= Config.Defense.StaminaHelper.WalkSpeed then
-            humanoid.WalkSpeed = applyStability(Config.Defense.StaminaHelper.WalkSpeed, 60)
-        end
-    end
-    
-    -- GK Position Assist
-    if Config.Defense.GKPosAssist.Enabled and ownGoal and ball then
-        local predictTime = Config.Defense.GKPosAssist.Predict
-        local futureBallPos = ball.Position + ball.AssemblyLinearVelocity * predictTime
-        local interceptPoint = ownGoal.Position:Lerp(futureBallPos, 0.7)
-        
-        local distToInt = (hrp.Position - interceptPoint).Magnitude
-        if distToInt > Config.Defense.GKPosAssist.Dist then
-            local moveDir = (interceptPoint - hrp.Position).Unit
-            -- Only assist if player is relatively idle
-            if humanoid.MoveDirection.Magnitude < 0.2 then
-                humanoid:Move(moveDir, false)
-            end
-        end
-    end
-    
-    -- Anti-Stun (Velocity reset simulation)
-    if Config.Defense.AntiStun.Enabled and humanoid.PlatformStand then
-        humanoid.PlatformStand = false
-        hrp.AssemblyLinearVelocity = Vector3.zero
-    end
-    
-    -- Ball Attraction
-    if Config.Defense.BallAttract.Enabled and ball then
-        local dist = (hrp.Position - ball.Position).Magnitude
-        if dist < Config.Defense.BallAttract.Radius and dist > 3 then
-            -- Educational note: Client cannot attract server-owned balls
-            -- This calculates the theoretical pull vector for analysis
-            local pullDir = (hrp.Position - ball.Position).Unit
-            local pullMag = applyStability(Config.Defense.BallAttract.Pull, 30)
-            -- Visualization only in visuals tab
-        end
-    end
-end
-
--- // VISUALS RENDERER
-local VisualObjects = {}
-
-local function clearVisual(tag)
-    if VisualObjects[tag] then
-        for _, obj in ipairs(VisualObjects[tag]) do
-            obj:Destroy()
-        end
-        VisualObjects[tag] = nil
-    end
-end
-
-local function createHighlight(part, color, transparency, tag)
-    if not part or not part.Parent then return nil end
-    local hl = Instance.new("Highlight")
-    hl.Adornee = part
-    hl.FillColor = color
-    hl.OutlineColor = color
-    hl.FillTransparency = transparency
-    hl.OutlineTransparency = 0
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = CoreGui
-    table.insert(VisualObjects[tag] or {}, hl)
-    if not VisualObjects[tag] then VisualObjects[tag] = {hl} end
-    return hl
-end
-
-function Logic.RenderVisuals()
-    -- Ball Highlight
-    if Config.Visuals.BallHighlight.Enabled then
-        if not VisualObjects["BallHL"] or not VisualObjects["BallHL"][1].Parent then
-            clearVisual("BallHL")
-            if EntityCache.Ball then
-                createHighlight(EntityCache.Ball, Config.Visuals.BallHighlight.Color, 0.7, "BallHL")
-            end
-        end
-    else
-        clearVisual("BallHL")
-    end
-    
-    -- Goal Highlight
-    if Config.Visuals.GoalHighlight.Enabled then
-        if not VisualObjects["GoalHL"] then
-            clearVisual("GoalHL")
-            VisualObjects["GoalHL"] = {}
-            for _, goal in pairs({EntityCache.EnemyGoal, EntityCache.OwnGoal}) do
-                if goal then
-                    local box = Instance.new("BoxHandleAdornment")
-                    box.Adornee = goal
-                    box.Size = goal.Size
-                    box.Color3 = Color3.fromRGB(0, 255, 100)
-                    box.Transparency = 1 - Config.Visuals.GoalHighlight.Opacity
-                    box.AlwaysOnTop = true
-                    box.ZIndex = 1
-                    box.Parent = CoreGui
-                    table.insert(VisualObjects["GoalHL"], box)
+local function LoadConfig()
+    SafePcall(function()
+        if readfile and isfile and isfile(ConfigFileName) then
+            local data = readfile(ConfigFileName)
+            local decoded = HttpService:JSONDecode(data)
+            for k, v in pairs(decoded) do
+                if Config[k] ~= nil then
+                    Config[k] = v
                 end
             end
         end
-    else
-        clearVisual("GoalHL")
-    end
-    
-    -- Trajectory Line (Simplified Raycast Visualization)
-    if Config.Visuals.TrajectoryLine.Enabled and EntityCache.Ball then
-        clearVisual("TrajLine")
-        VisualObjects["TrajLine"] = {}
-        local origin = EntityCache.Ball.Position
-        local vel = EntityCache.Ball.AssemblyLinearVelocity
-        if vel.Magnitude > 5 then
-            for i = 1, Config.Visuals.TrajectoryLine.Segments do
-                local t = i * 0.1
-                local pos = origin + vel * t + 0.5 * Workspace.Gravity * t * t * Vector3.new(0,-1,0)
-                local dot = Instance.new("SphereHandleAdornment")
-                dot.Adornee = EntityCache.Ball
-                dot.Radius = 0.15
-                dot.Color3 = Color3.fromRGB(255, 200, 0)
-                dot.Transparency = i / Config.Visuals.TrajectoryLine.Segments
-                dot.AlwaysOnTop = true
-                dot.ZIndex = 2
-                dot.Parent = CoreGui
-                -- Position relative to adornee is tricky; using BillboardGui alternative
-                -- For simplicity in single file, we skip complex trajectory rendering
-                -- and rely on ball highlight as primary visual aid
-                dot:Destroy() -- Placeholder cleanup
-            end
-        end
-    else
-        clearVisual("TrajLine")
-    end
+    end)
 end
 
--- // PERFORMANCE OPTIMIZER
-local OptimizerState = { OriginalProps = {} }
+--------------------------------------------------------------------------------
+-- UI CONSTRUCTION (MOBILE / DELTA OPTIMIZED)
+--------------------------------------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "LessHub_UI"
+ScreenGui.ResetOnSpawn = false
 
-function Logic.TogglePerformance(enable)
-    if enable then
-        pcall(function()
+-- Executor check to attach to CoreGui safely
+SafePcall(function()
+    if gethui then
+        ScreenGui.Parent = gethui()
+    elseif syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = game:GetService("CoreGui")
+    else
+        ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+end)
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 360, 0, 260)
+MainFrame.Position = UDim2.new(0.5, -180, 0.5, -130)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(35, 85, 185)
+UIStroke.Thickness = 1.5
+UIStroke.Parent = MainFrame
+
+-- Top Bar
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 35)
+TopBar.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(0.6, 0, 1, 0)
+TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "LessHub | Illegal Soccer"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 13
+TitleLabel.Parent = TopBar
+
+-- Close & Minimize Buttons
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 0, 35)
+CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(220, 60, 60)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 14
+CloseBtn.Parent = TopBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 35, 0, 35)
+MinBtn.Position = UDim2.new(1, -70, 0, 0)
+MinBtn.BackgroundTransparency = 1
+MinBtn.Text = "-"
+MinBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 16
+MinBtn.Parent = TopBar
+
+-- Dragging Functionality for Touch & Mouse
+local dragging, dragInput, dragStart, startPos
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+TopBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- Floating Toggle Hub Button (For Mobile Accessibility)
+local ToggleHubBtn = Instance.new("TextButton")
+ToggleHubBtn.Name = "ToggleHubBtn"
+ToggleHubBtn.Size = UDim2.new(0, 45, 0, 45)
+ToggleHubBtn.Position = UDim2.new(0, 10, 0.3, 0)
+ToggleHubBtn.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
+ToggleHubBtn.Text = "HUB"
+ToggleHubBtn.TextColor3 = Color3.fromRGB(0, 170, 255)
+ToggleHubBtn.Font = Enum.Font.GothamBold
+ToggleHubBtn.TextSize = 12
+ToggleHubBtn.Parent = ScreenGui
+
+local HubCorner = Instance.new("UICorner")
+HubCorner.CornerRadius = UDim.new(0, 22)
+HubCorner.Parent = ToggleHubBtn
+
+local HubStroke = Instance.new("UIStroke")
+HubStroke.Color = Color3.fromRGB(0, 170, 255)
+HubStroke.Thickness = 1.5
+HubStroke.Parent = ToggleHubBtn
+
+ToggleHubBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
+
+--------------------------------------------------------------------------------
+-- KEY SYSTEM CONTAINER
+--------------------------------------------------------------------------------
+local KeyFrame = Instance.new("Frame")
+KeyFrame.Size = UDim2.new(1, 0, 1, -35)
+KeyFrame.Position = UDim2.new(0, 0, 0, 35)
+KeyFrame.BackgroundTransparency = 1
+KeyFrame.Parent = MainFrame
+
+local KeyInput = Instance.new("TextBox")
+KeyInput.Size = UDim2.new(0.7, 0, 0, 40)
+KeyInput.Position = UDim2.new(0.15, 0, 0.25, 0)
+KeyInput.BackgroundColor3 = Color3.fromRGB(30, 34, 45)
+KeyInput.PlaceholderText = "Enter Key Here..."
+KeyInput.Text = ""
+KeyInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyInput.Font = Enum.Font.Gotham
+KeyInput.TextSize = 13
+KeyInput.Parent = KeyFrame
+
+local KeyInputCorner = Instance.new("UICorner")
+KeyInputCorner.CornerRadius = UDim.new(0, 6)
+KeyInputCorner.Parent = KeyInput
+
+local ValidateBtn = Instance.new("TextButton")
+ValidateBtn.Size = UDim2.new(0.5, 0, 0, 40)
+ValidateBtn.Position = UDim2.new(0.25, 0, 0.55, 0)
+ValidateBtn.BackgroundColor3 = Color3.fromRGB(35, 115, 225)
+ValidateBtn.Text = "Validate"
+ValidateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ValidateBtn.Font = Enum.Font.GothamBold
+ValidateBtn.TextSize = 14
+ValidateBtn.Parent = KeyFrame
+
+local ValCorner = Instance.new("UICorner")
+ValCorner.CornerRadius = UDim.new(0, 6)
+ValCorner.Parent = ValidateBtn
+
+--------------------------------------------------------------------------------
+-- MAIN APP CONTAINER (POST-VALIDATION)
+--------------------------------------------------------------------------------
+local AppFrame = Instance.new("Frame")
+AppFrame.Size = UDim2.new(1, 0, 1, -35)
+AppFrame.Position = UDim2.new(0, 0, 0, 35)
+AppFrame.BackgroundTransparency = 1
+AppFrame.Visible = false
+AppFrame.Parent = MainFrame
+
+-- Left Navigation Bar
+local NavFrame = Instance.new("Frame")
+NavFrame.Size = UDim2.new(0, 90, 1, 0)
+NavFrame.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
+NavFrame.BorderSizePixel = 0
+NavFrame.Parent = AppFrame
+
+local NavLayout = Instance.new("UIListLayout")
+NavLayout.SortOrder = Enum.SortOrder.LayoutOrder
+NavLayout.Padding = UDim.new(0, 2)
+NavLayout.Parent = NavFrame
+
+-- Content Frame
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, -95, 1, -10)
+ContentFrame.Position = UDim2.new(0, 95, 0, 5)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = AppFrame
+
+local Tabs = {}
+local TabButtons = {}
+
+local function CreateTab(name, order)
+    local TabBtn = Instance.new("TextButton")
+    TabBtn.Size = UDim2.new(1, 0, 0, 40)
+    TabBtn.BackgroundTransparency = 1
+    TabBtn.Text = name
+    TabBtn.TextColor3 = Color3.fromRGB(150, 150, 160)
+    TabBtn.Font = Enum.Font.GothamMedium
+    TabBtn.TextSize = 11
+    TabBtn.LayoutOrder = order
+    TabBtn.Parent = NavFrame
+    
+    local TabScroll = Instance.new("ScrollingFrame")
+    TabScroll.Size = UDim2.new(1, 0, 1, 0)
+    TabScroll.BackgroundTransparency = 1
+    TabScroll.BorderSizePixel = 0
+    TabScroll.ScrollBarThickness = 3
+    TabScroll.ScrollBarImageColor3 = Color3.fromRGB(50, 100, 200)
+    TabScroll.Visible = false
+    TabScroll.Parent = ContentFrame
+    
+    local ListLayout = Instance.new("UIListLayout")
+    ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ListLayout.Padding = UDim.new(0, 6)
+    ListLayout.Parent = TabScroll
+    
+    TabScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        TabScroll.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 10)
+    end)
+    
+    TabBtn.MouseButton1Click:Connect(function()
+        for _, btn in pairs(TabButtons) do
+            btn.TextColor3 = Color3.fromRGB(150, 150, 160)
+        end
+        for _, sc in pairs(Tabs) do
+            sc.Visible = false
+        end
+        TabBtn.TextColor3 = Color3.fromRGB(0, 170, 255)
+        TabScroll.Visible = true
+    end)
+    
+    Tabs[name] = TabScroll
+    TabButtons[name] = TabBtn
+    return TabScroll
+end
+
+local CombatTab  = CreateTab("Combat", 1)
+local DefenseTab = CreateTab("Defense", 2)
+local VisualsTab = CreateTab("Visuals", 3)
+local MiscTab    = CreateTab("Misc", 4)
+local SettingsTab= CreateTab("Settings", 5)
+
+-- Default Open Combat Tab
+TabButtons["Combat"].TextColor3 = Color3.fromRGB(0, 170, 255)
+Tabs["Combat"].Visible = true
+
+--------------------------------------------------------------------------------
+-- UI COMPONENT BUILDERS (Row format: [Toggle] [Label] [Value] [Slider/+/-])
+--------------------------------------------------------------------------------
+local function AddRowToggle(parent, labelText, configKey, callback)
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, -5, 0, 38)
+    Row.BackgroundColor3 = Color3.fromRGB(28, 31, 42)
+    Row.Parent = parent
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 4)
+    Corner.Parent = Row
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.65, 0, 1, 0)
+    Label.Position = UDim2.new(0, 8, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = labelText
+    Label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Row
+    
+    local ToggleBtn = Instance.new("TextButton")
+    ToggleBtn.Size = UDim2.new(0, 50, 0, 26)
+    ToggleBtn.Position = UDim2.new(1, -55, 0.5, -13)
+    ToggleBtn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(35, 135, 225) or Color3.fromRGB(45, 48, 60)
+    ToggleBtn.Text = Config[configKey] and "ON" or "OFF"
+    ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleBtn.Font = Enum.Font.GothamBold
+    ToggleBtn.TextSize = 10
+    ToggleBtn.Parent = Row
+    
+    local TCorner = Instance.new("UICorner")
+    TCorner.CornerRadius = UDim.new(0, 4)
+    TCorner.Parent = ToggleBtn
+    
+    ToggleBtn.MouseButton1Click:Connect(function()
+        Config[configKey] = not Config[configKey]
+        ToggleBtn.BackgroundColor3 = Config[configKey] and Color3.fromRGB(35, 135, 225) or Color3.fromRGB(45, 48, 60)
+        ToggleBtn.Text = Config[configKey] and "ON" or "OFF"
+        if callback then callback(Config[configKey]) end
+    end)
+    return Row
+end
+
+local function AddRowSlider(parent, labelText, configKey, min, max, callback)
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, -5, 0, 42)
+    Row.BackgroundColor3 = Color3.fromRGB(28, 31, 42)
+    Row.Parent = parent
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 4)
+    Corner.Parent = Row
+    
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(0.5, 0, 0.5, 0)
+    Label.Position = UDim2.new(0, 8, 0, 2)
+    Label.BackgroundTransparency = 1
+    Label.Text = labelText
+    Label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    Label.Font = Enum.Font.Gotham
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Row
+    
+    local ValLabel = Instance.new("TextLabel")
+    ValLabel.Size = UDim2.new(0.4, 0, 0.5, 0)
+    ValLabel.Position = UDim2.new(0.55, 0, 0, 2)
+    ValLabel.BackgroundTransparency = 1
+    ValLabel.Text = tostring(Config[configKey])
+    ValLabel.TextColor3 = Color3.fromRGB(0, 170, 255)
+    ValLabel.Font = Enum.Font.GothamBold
+    ValLabel.TextSize = 11
+    ValLabel.TextXAlignment = Enum.TextXAlignment.Right
+    ValLabel.Parent = Row
+    
+    -- +/- Control Buttons for Precise Touch Adjustment
+    local MinusBtn = Instance.new("TextButton")
+    MinusBtn.Size = UDim2.new(0, 24, 0, 18)
+    MinusBtn.Position = UDim2.new(0, 8, 0.55, 0)
+    MinusBtn.BackgroundColor3 = Color3.fromRGB(45, 48, 60)
+    MinusBtn.Text = "-"
+    MinusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MinusBtn.Font = Enum.Font.GothamBold
+    MinusBtn.TextSize = 12
+    MinusBtn.Parent = Row
+    
+    local PlusBtn = Instance.new("TextButton")
+    PlusBtn.Size = UDim2.new(0, 24, 0, 18)
+    PlusBtn.Position = UDim2.new(1, -30, 0.55, 0)
+    PlusBtn.BackgroundColor3 = Color3.fromRGB(45, 48, 60)
+    PlusBtn.Text = "+"
+    PlusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PlusBtn.Font = Enum.Font.GothamBold
+    PlusBtn.TextSize = 12
+    PlusBtn.Parent = Row
+    
+    local SliderBar = Instance.new("Frame")
+    SliderBar.Size = UDim2.new(1, -70, 0, 6)
+    SliderBar.Position = UDim2.new(0, 38, 0.7, 0)
+    SliderBar.BackgroundColor3 = Color3.fromRGB(45, 48, 60)
+    SliderBar.BorderSizePixel = 0
+    SliderBar.Parent = Row
+    
+    local SliderFill = Instance.new("Frame")
+    local pct = math.clamp((Config[configKey] - min) / (max - min), 0, 1)
+    SliderFill.Size = UDim2.new(pct, 0, 1, 0)
+    SliderFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBar
+    
+    local function UpdateVal(newVal)
+        newVal = math.clamp(math.floor(newVal), min, max)
+        Config[configKey] = newVal
+        ValLabel.Text = tostring(newVal)
+        local fillPct = math.clamp((newVal - min) / (max - min), 0, 1)
+        SliderFill.Size = UDim2.new(fillPct, 0, 1, 0)
+        if callback then callback(newVal) end
+    end
+    
+    MinusBtn.MouseButton1Click:Connect(function() UpdateVal(Config[configKey] - 1) end)
+    PlusBtn.MouseButton1Click:Connect(function() UpdateVal(Config[configKey] + 1) end)
+    
+    return Row
+end
+
+--------------------------------------------------------------------------------
+-- POPULATING INTERFACE TABS
+--------------------------------------------------------------------------------
+-- COMBAT
+AddRowToggle(CombatTab, "Shot Assist", "ShotAssist")
+AddRowSlider(CombatTab, "Shot Power", "ShotPower", 10, 150)
+AddRowSlider(CombatTab, "Auto Shot Dist", "AutoShotDistance", 5, 50)
+AddRowToggle(CombatTab, "Aim Smoothing", "AimSmoothing")
+AddRowSlider(CombatTab, "Aim Power", "AimPower", 1, 20)
+AddRowToggle(CombatTab, "Curve Ball", "CurveEnabled")
+AddRowSlider(CombatTab, "Curve Power", "CurvePower", 0, 150)
+AddRowToggle(CombatTab, "Dribble Assist", "DribbleAssist")
+AddRowSlider(CombatTab, "Dribble Dist", "DribbleDistance", 5, 30)
+AddRowToggle(CombatTab, "Combined Shot", "CombinedShot")
+AddRowToggle(CombatTab, "Auto Score Guidance", "AutoScoreGuidance")
+
+-- DEFENSE
+AddRowToggle(DefenseTab, "GK Pos Assist", "GKAssist")
+AddRowSlider(DefenseTab, "GK Coverage", "GKWalkDistance", 5, 50)
+AddRowToggle(DefenseTab, "Stamina Helper", "StaminaHelper")
+AddRowSlider(DefenseTab, "WalkSpeed Boost", "WalkSpeedBoost", 16, 60)
+AddRowToggle(DefenseTab, "Anti-Stun Assist", "AntiStun")
+AddRowToggle(DefenseTab, "Ball Attraction", "BallAttraction")
+AddRowSlider(DefenseTab, "Attract Radius", "AttractionRadius", 5, 40)
+
+-- VISUALS
+AddRowToggle(VisualsTab, "Ball Highlight", "BallHighlight")
+AddRowToggle(VisualsTab, "Player Highlight", "PlayerHighlight")
+AddRowToggle(VisualsTab, "Goal Highlight", "GoalHighlight")
+AddRowToggle(VisualsTab, "Trajectory Line", "TrajectoryLine")
+
+-- MISC
+AddRowToggle(MiscTab, "Stability Layer", "StabilityLayer")
+AddRowToggle(MiscTab, "Safe Mode", "SafeMode")
+AddRowToggle(MiscTab, "Performance Opt", "PerformanceOptimizer", function(state)
+    if state then
+        SafePcall(function()
             Lighting.GlobalShadows = false
             Lighting.ShadowSoftness = 0
-        end)
-        pcall(function()
-            UserGameSettings.SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
-        end)
-        -- Hide decorative elements
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Decal") or obj:IsA("Texture") then
-                if not OptimizerState.OriginalProps[obj] then
-                    OptimizerState.OriginalProps[obj] = obj.Enabled
-                    obj.Enabled = false
+            for _, v in ipairs(Workspace:GetDescendants()) do
+                if v:IsA("ParticleEmitter") or v:IsA("Light") or v:IsA("Decal") or v:IsA("Texture") or v:IsA("Trail") then
+                    if v.Enabled ~= nil then
+                        table.insert(HiddenVisualObjects, {obj = v, prop = "Enabled", val = v.Enabled})
+                        v.Enabled = false
+                    elseif v.Transparency ~= nil then
+                        table.insert(HiddenVisualObjects, {obj = v, prop = "Transparency", val = v.Transparency})
+                        v.Transparency = 1
+                    end
                 end
             end
-        end
+        end)
     else
-        pcall(function() Lighting.GlobalShadows = true; Lighting.ShadowSoftness = 0.5 end)
-        for obj, orig in pairs(OptimizerState.OriginalProps) do
-            pcall(function() obj.Enabled = orig end)
-        end
-        table.clear(OptimizerState.OriginalProps)
+        SafePcall(function()
+            Lighting.GlobalShadows = OriginalLightingSettings.GlobalShadows
+            Lighting.ShadowSoftness = OriginalLightingSettings.ShadowSoftness
+            for _, item in ipairs(HiddenVisualObjects) do
+                if item.obj and item.obj.Parent then
+                    item.obj[item.prop] = item.val
+                end
+            end
+            table.clear(HiddenVisualObjects)
+        end)
     end
-end
+end)
+AddRowToggle(MiscTab, "Anti-Idle Prevent", "IdlePrevent")
 
--- // IDLE PREVENTER
+-- SETTINGS
+local ResetRow = Instance.new("Frame")
+ResetRow.Size = UDim2.new(1, -5, 0, 35)
+ResetRow.BackgroundColor3 = Color3.fromRGB(28, 31, 42)
+ResetRow.Parent = SettingsTab
+
+local ResetBtn = Instance.new("TextButton")
+ResetBtn.Size = UDim2.new(0.9, 0, 0.8, 0)
+ResetBtn.Position = UDim2.new(0.05, 0, 0.1, 0)
+ResetBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+ResetBtn.Text = "Reset All Defaults"
+ResetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ResetBtn.Font = Enum.Font.GothamBold
+ResetBtn.TextSize = 11
+ResetBtn.Parent = ResetRow
+
+local ConfigRow = Instance.new("Frame")
+ConfigRow.Size = UDim2.new(1, -5, 0, 35)
+ConfigRow.BackgroundColor3 = Color3.fromRGB(28, 31, 42)
+ConfigRow.Parent = SettingsTab
+
+local SaveBtn = Instance.new("TextButton")
+SaveBtn.Size = UDim2.new(0.42, 0, 0.8, 0)
+SaveBtn.Position = UDim2.new(0.05, 0, 0.1, 0)
+SaveBtn.BackgroundColor3 = Color3.fromRGB(35, 115, 225)
+SaveBtn.Text = "Save Config"
+SaveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SaveBtn.Font = Enum.Font.GothamBold
+SaveBtn.TextSize = 11
+SaveBtn.Parent = ConfigRow
+
+local LoadBtn = Instance.new("TextButton")
+LoadBtn.Size = UDim2.new(0.42, 0, 0.8, 0)
+LoadBtn.Position = UDim2.new(0.53, 0, 0.1, 0)
+LoadBtn.BackgroundColor3 = Color3.fromRGB(35, 135, 80)
+LoadBtn.Text = "Load Config"
+LoadBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+LoadBtn.Font = Enum.Font.GothamBold
+LoadBtn.TextSize = 11
+LoadBtn.Parent = ConfigRow
+
+SaveBtn.MouseButton1Click:Connect(SaveConfig)
+LoadBtn.MouseButton1Click:Connect(LoadConfig)
+
+-- Executor Info Label
+local ExecInfo = Instance.new("TextLabel")
+ExecInfo.Size = UDim2.new(1, -5, 0, 30)
+ExecInfo.BackgroundTransparency = 1
+ExecInfo.Text = "Env: " .. (identifyexecutor and identifyexecutor() or "Delta Mobile / Standard")
+ExecInfo.TextColor3 = Color3.fromRGB(120, 120, 140)
+ExecInfo.Font = Enum.Font.Gotham
+ExecInfo.TextSize = 10
+ExecInfo.Parent = SettingsTab
+
+--------------------------------------------------------------------------------
+-- KEY VALIDATION & INTERFACE CONTROL
+--------------------------------------------------------------------------------
+ValidateBtn.MouseButton1Click:Connect(function()
+    Config.KeyValidated = true
+    KeyFrame.Visible = false
+    AppFrame.Visible = true
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+MinBtn.MouseButton1Click:Connect(function()
+    AppFrame.Visible = not AppFrame.Visible
+end)
+
+--------------------------------------------------------------------------------
+-- CORE MODULE LOGIC & FEATURE RUNNERS
+--------------------------------------------------------------------------------
+
+-- 1. Anti-Idle System (60s simulation)
 task.spawn(function()
-    while task.wait(60) do
-        if Config.Misc.IdlePrevent.Enabled then
-            pcall(function()
-                -- Simulate micro mouse movement
-                UserInputService:SetMouseLocation(
-                    UserInputService:GetMouseLocation().X + 1,
-                    UserInputService:GetMouseLocation().Y
-                )
+    while true do
+        task.wait(60)
+        if Config.IdlePrevent then
+            SafePcall(function()
+                local VirtualUser = game:GetService("VirtualUser")
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
             end)
         end
     end
 end)
 
--- // MAIN LOOPS
+-- 2. Heartbeat Logic (Combat & Physics Engine Adjustments)
 RunService.Heartbeat:Connect(function(dt)
-    if not Config.Validated then return end
-    updateEntityCache()
-    Logic.CombatLoop(dt)
-    Logic.DefenseLoop(dt)
+    if not Config.KeyValidated then return end
     
-    -- Performance toggle check
-    if Config.Misc.PerfOptimizer.Enabled ~= OptimizerState.Active then
-        Logic.TogglePerformance(Config.Misc.PerfOptimizer.Enabled)
-        OptimizerState.Active = Config.Misc.PerfOptimizer.Enabled
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    local ball = GetBall()
+    local enemyGoal, ownGoal = GetGoals()
+
+    -- Stability Layer Jitter Generation
+    local jitter = Vector3.new(0, 0, 0)
+    if Config.StabilityLayer then
+        jitter = Vector3.new((math.random() - 0.5) * 0.02, 0, (math.random() - 0.5) * 0.02)
     end
-end)
 
-RunService.RenderStepped:Connect(function()
-    if not Config.Validated then return end
-    Logic.RenderVisuals()
-end)
-
--- // UI CONSTRUCTION LIBRARY (Minimalist Mobile-First)
-local UILib = {}
-UILib.__index = UILib
-
-function UILib.new()
-    local self = setmetatable({}, UILib)
-    self.Screen = Instance.new("ScreenGui")
-    self.Screen.ResetOnSpawn = false
-    self.Screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    self.Screen.IgnoreGuiInset = true
-    self.Screen.Parent = CoreGui
-    
-    self.Theme = {
-        BG = Color3.fromRGB(20, 20, 25),
-        Panel = Color3.fromRGB(30, 30, 35),
-        Accent = Color3.fromRGB(80, 140, 255),
-        Text = Color3.fromRGB(240, 240, 240),
-        SubText = Color3.fromRGB(160, 160, 160),
-        ToggleOn = Color3.fromRGB(50, 200, 100),
-        ToggleOff = Color3.fromRGB(80, 80, 80)
-    }
-    
-    return self
-end
-
-function UILib:createFrame(parent, props)
-    local f = Instance.new("Frame")
-    f.BackgroundColor3 = props.Color or self.Theme.Panel
-    f.BorderSizePixel = 0
-    f.Position = props.Pos or UDim2.fromScale(0,0)
-    f.Size = props.Size or UDim2.fromScale(1,1)
-    f.AnchorPoint = props.Anchor or Vector2.new(0,0)
-    f.ClipsDescendants = true
-    if props.Corner then Instance.new("UICorner", f).CornerRadius = UDim.new(0, props.Corner) end
-    if props.Stroke then 
-        local s = Instance.new("UIStroke", f)
-        s.Color = props.StrokeColor or self.Theme.Accent
-        s.Thickness = 1
-    end
-    f.Parent = parent
-    return f
-end
-
-function UILib:createButton(parent, text, callback, props)
-    local btn = Instance.new("TextButton")
-    btn.Text = text
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = props.TextSize or 14
-    btn.TextColor3 = self.Theme.Text
-    btn.BackgroundColor3 = props.Color or self.Theme.Accent
-    btn.Size = props.Size or UDim2.new(1, 0, 0, 40)
-    btn.Position = props.Pos or UDim2.fromScale(0,0)
-    btn.AnchorPoint = props.Anchor or Vector2.new(0,0)
-    btn.BorderSizePixel = 0
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-    btn.Parent = parent
-    btn.MouseButton1Click:Connect(callback)
-    return btn
-end
-
-function UILib:createToggleRow(parent, label, configTable, key, onChange)
-    local row = self:createFrame(parent, {Size = UDim2.new(1, -20, 0, 44), Pos = UDim2.new(0, 10, 0, 0), Color = Color3.fromRGB(40,40,45), Corner = 8})
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Text = label
-    lbl.Font = Enum.Font.GothamMedium
-    lbl.TextSize = 13
-    lbl.TextColor3 = self.Theme.Text
-    lbl.BackgroundTransparency = 1
-    lbl.Size = UDim2.new(1, -60, 1, 0)
-    lbl.Position = UDim2.new(0, 10, 0, 0)
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = row
-    
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 44, 0, 26)
-    toggleBtn.Position = UDim2.new(1, -52, 0.5, 0)
-    toggleBtn.AnchorPoint = Vector2.new(0, 0.5)
-    toggleBtn.BackgroundColor3 = configTable[key] and self.Theme.ToggleOn or self.Theme.ToggleOff
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.Text = ""
-    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 13)
-    toggleBtn.Parent = row
-    
-    local indicator = Instance.new("Frame")
-    indicator.Size = UDim2.new(0, 20, 0, 20)
-    indicator.Position = configTable[key] and UDim2.new(1, -23, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
-    indicator.AnchorPoint = Vector2.new(0, 0.5)
-    indicator.BackgroundColor3 = Color3.fromRGB(255,255,255)
-    indicator.BorderSizePixel = 0
-    Instance.new("UICorner", indicator).CornerRadius = UDim.new(0, 10)
-    indicator.Parent = toggleBtn
-    
-    toggleBtn.MouseButton1Click:Connect(function()
-        configTable[key] = not configTable[key]
-        toggleBtn.BackgroundColor3 = configTable[key] and self.Theme.ToggleOn or self.Theme.ToggleOff
-        TweenService:Create(indicator, TweenInfo.new(0.2), {
-            Position = configTable[key] and UDim2.new(1, -23, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
-        }):Play()
-        if onChange then onChange(configTable[key]) end
-        saveConfig()
-    end)
-    
-    return row
-end
-
-function UILib:createSliderRow(parent, label, configTable, key, min, max, step)
-    local row = self:createFrame(parent, {Size = UDim2.new(1, -20, 0, 60), Pos = UDim2.new(0, 10, 0, 0), Color = Color3.fromRGB(40,40,45), Corner = 8})
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Text = string.format("%s: %.1f", label, configTable[key])
-    lbl.Font = Enum.Font.GothamMedium
-    lbl.TextSize = 12
-    lbl.TextColor3 = self.Theme.SubText
-    lbl.BackgroundTransparency = 1
-    lbl.Size = UDim2.new(1, -20, 0, 20)
-    lbl.Position = UDim2.new(0, 10, 0, 4)
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = row
-    
-    local sliderBG = Instance.new("Frame")
-    sliderBG.Size = UDim2.new(1, -20, 0, 6)
-    sliderBG.Position = UDim2.new(0, 10, 1, -14)
-    sliderBG.BackgroundColor3 = Color3.fromRGB(60,60,65)
-    sliderBG.BorderSizePixel = 0
-    Instance.new("UICorner", sliderBG).CornerRadius = UDim.new(0, 3)
-    sliderBG.Parent = row
-    
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((configTable[key] - min) / (max - min), 0, 1, 0)
-    fill.BackgroundColor3 = self.Theme.Accent
-    fill.BorderSizePixel = 0
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
-    fill.Parent = sliderBG
-    
-    local thumb = Instance.new("ImageButton")
-    thumb.Size = UDim2.new(0, 20, 0, 20)
-    thumb.Position = UDim2.new((configTable[key] - min) / (max - min), -10, 0.5, 0)
-    thumb.AnchorPoint = Vector2.new(0, 0.5)
-    thumb.Image = "rbxassetid://12266946128"
-    thumb.BackgroundTransparency = 1
-    thumb.Parent = sliderBG
-    
-    local dragging = false
-    thumb.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
+    -- Stamina / WalkSpeed Handler
+    if Config.StaminaHelper then
+        local targetSpeed = GetEffectiveValue(Config.WalkSpeedBoost)
+        if hum.WalkSpeed ~= targetSpeed then
+            hum.WalkSpeed = targetSpeed
         end
-    end)
-    
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
+        -- Hardcode-safe stamina attribute attempt
+        if char:FindFirstChild("Stamina") and char.Stamina:IsA("NumberValue") then
+            char.Stamina.Value = 100
         end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-            local rel = math.clamp((input.Position.X - sliderBG.AbsolutePosition.X) / sliderBG.AbsoluteSize.X, 0, 1)
-            local val = min + rel * (max - min)
-            if step then val = math.round(val / step) * step end
-            configTable[key] = math.clamp(val, min, max)
-            fill.Size = UDim2.new(rel, 0, 1, 0)
-            thumb.Position = UDim2.new(rel, -10, 0.5, 0)
-            lbl.Text = string.format("%s: %.1f", label, configTable[key])
+    end
+
+    -- Anti-Stun Assist
+    if Config.AntiStun then
+        if hum:GetState() == Enum.HumanoidStateType.PlatformStanding or hum.PlatformStand then
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
-    end)
-    
-    thumb.InputEnded:Connect(function() saveConfig() end)
-    
-    return row
-end
-
--- // BUILD MAIN UI
-local ui = UILib.new()
-
--- Toggle Hub Button
-local hubBtn = ui:createButton(ui.Screen, "⚽", function()
-    mainPanel.Visible = not mainPanel.Visible
-end, {Size = UDim2.new(0, 50, 0, 50), Pos = UDim2.new(0, 10, 1, -70), Color = ui.Theme.Accent, TextSize = 20})
-Instance.new("UICorner", hubBtn).CornerRadius = UDim.new(0, 25)
-
--- Login Screen
-local loginPanel = ui:createFrame(ui.Screen, {
-    Size = UDim2.new(0, 320, 0, 200),
-    Pos = UDim2.new(0.5, -160, 0.5, -100),
-    Corner = 12, Stroke = true
-})
-
-ui:createFrame(loginPanel, {Size = UDim2.new(1,0,0,40), Color = ui.Theme.Accent, Corner = 12})
-local loginTitle = Instance.new("TextLabel")
-loginTitle.Text = "EDUCATIONAL ACCESS"
-loginTitle.Font = Enum.Font.GothamBold
-loginTitle.TextSize = 16
-loginTitle.TextColor3 = Color3.fromRGB(255,255,255)
-loginTitle.BackgroundTransparency = 1
-loginTitle.Size = UDim2.new(1,0,1,0)
-loginTitle.Parent = loginPanel
-
-local keyBox = Instance.new("TextBox")
-keyBox.PlaceholderText = "Enter Access Key..."
-keyBox.Font = Enum.Font.Gotham
-keyBox.TextSize = 14
-keyBox.TextColor3 = ui.Theme.Text
-keyBox.BackgroundColor3 = Color3.fromRGB(40,40,45)
-keyBox.Size = UDim2.new(1, -40, 0, 36)
-keyBox.Position = UDim2.new(0, 20, 0, 60)
-keyBox.BorderSizePixel = 0
-Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0, 8)
-keyBox.Parent = loginPanel
-
-ui:createButton(loginPanel, "VALIDATE", function()
-    -- Accept any key for educational prototype
-    Config.Key = keyBox.Text
-    Config.Validated = true
-    loginPanel.Visible = false
-    mainPanel.Visible = true
-    saveConfig()
-end, {Size = UDim2.new(1, -40, 0, 40), Pos = UDim2.new(0, 20, 0, 110)})
-
--- Main Panel
-local mainPanel = ui:createFrame(ui.Screen, {
-    Size = UDim2.new(0, 360, 0, 580),
-    Pos = UDim2.new(0, 10, 0, 60),
-    Corner = 12, Stroke = true, Color = ui.Theme.BG
-})
-mainPanel.Visible = false
-
--- Draggable Header
-local header = ui:createFrame(mainPanel, {Size = UDim2.new(1,0,0,40), Color = ui.Theme.Panel, Corner = 12})
-local dragInput
-header.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragInput = input
     end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput then
-        local delta = input.Delta
-        mainPanel.Position = mainPanel.Position + UDim2.fromOffset(delta.X, delta.Y)
+
+    -- Dribble Assist (Movement triggered ONLY when ball is distant)
+    if Config.DribbleAssist and ball then
+        local dist = (ball.Position - hrp.Position).Magnitude
+        if dist > Config.DribbleDistance and dist < 60 then
+            local moveDir = (ball.Position - hrp.Position).Unit + jitter
+            hum:Move(moveDir, false)
+        end
     end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input == dragInput then dragInput = nil end
-end)
 
-local titleLbl = Instance.new("TextLabel")
-titleLbl.Text = "ILLEGAL SOCCER | EDU PANEL"
-titleLbl.Font = Enum.Font.GothamBold
-titleLbl.TextSize = 14
-titleLbl.TextColor3 = ui.Theme.Text
-titleLbl.BackgroundTransparency = 1
-titleLbl.Size = UDim2.new(1, -80, 1, 0)
-titleLbl.Position = UDim2.new(0, 10, 0, 0)
-titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-titleLbl.Parent = header
-
-ui:createButton(header, "✕", function() mainPanel.Visible = false end, {Size = UDim2.new(0, 30, 0, 30), Pos = UDim2.new(1, -35, 0, 5), Color = Color3.fromRGB(200, 60, 60), TextSize = 14})
-ui:createButton(header, "_", function() mainPanel.Size = UDim2.new(0, 360, 0, 40) end, {Size = UDim2.new(0, 30, 0, 30), Pos = UDim2.new(1, -70, 0, 5), Color = Color3.fromRGB(80,80,80), TextSize = 14})
-
--- Tab System
-local tabs = {"Combat", "Defense", "Visuals", "Misc", "Settings"}
-local tabFrames = {}
-local tabBar = ui:createFrame(mainPanel, {Size = UDim2.new(1,0,0,36), Pos = UDim2.new(0,0,0,40), Color = ui.Theme.Panel})
-
-for i, tabName in ipairs(tabs) do
-    local btn = ui:createButton(tabBar, tabName, function()
-        for _, f in pairs(tabFrames) do f.Visible = false end
-        tabFrames[tabName].Visible = true
-    end, {
-        Size = UDim2.new(1/#tabs, 0, 1, 0),
-        Pos = UDim2.new((i-1)/#tabs, 0, 0, 0),
-        Color = (i==1) and ui.Theme.Accent or Color3.fromRGB(40,40,45),
-        TextSize = 11
-    })
-    
-    local content = ui:createFrame(mainPanel, {
-        Size = UDim2.new(1, -20, 1, -90),
-        Pos = UDim2.new(0, 10, 0, 80),
-        Color = ui.Theme.BG
-    })
-    content.Visible = (i == 1)
-    tabFrames[tabName] = content
-    
-    -- Populate Tabs
-    if tabName == "Combat" then
-        ui:createToggleRow(content, "Shot Assist", Config.Combat.ShotAssist, "Enabled")
-        ui:createSliderRow(content, "Shot Power", Config.Combat.ShotAssist, "Power", 10, 100, 1)
-        ui:createToggleRow(content, "Aim Smoothing", Config.Combat.AimSmooth, "Enabled")
-        ui:createToggleRow(content, "Curve / Falso", Config.Combat.Curve, "Enabled")
-        ui:createSliderRow(content, "Curve Force", Config.Combat.Curve, "Force", 0, 150, 5)
-        ui:createToggleRow(content, "Dribble Assist", Config.Combat.DribbleAssist, "Enabled")
-        ui:createToggleRow(content, "Combined Shot", Config.Combat.CombinedShot, "Enabled")
-        ui:createToggleRow(content, "Auto Score Guide", Config.Combat.AutoGuide, "Enabled")
-    elseif tabName == "Defense" then
-        ui:createToggleRow(content, "GK Position Assist", Config.Defense.GKPosAssist, "Enabled")
-        ui:createSliderRow(content, "Prediction Time", Config.Defense.GKPosAssist, "Predict", 0.5, 3, 0.1)
-        ui:createToggleRow(content, "Stamina Helper", Config.Defense.StaminaHelper, "Enabled")
-        ui:createSliderRow(content, "Walk Speed", Config.Defense.StaminaHelper, "WalkSpeed", 16, 60, 1)
-        ui:createToggleRow(content, "Anti-Stun Assist", Config.Defense.AntiStun, "Enabled")
-        ui:createToggleRow(content, "Ball Attraction", Config.Defense.BallAttract, "Enabled")
-        ui:createSliderRow(content, "Pull Radius", Config.Defense.BallAttract, "Radius", 5, 30, 1)
-    elseif tabName == "Visuals" then
-        ui:createToggleRow(content, "Ball Highlight", Config.Visuals.BallHighlight, "Enabled")
-        ui:createToggleRow(content, "Player Highlight", Config.Visuals.PlayerHighlight, "Enabled")
-        ui:createToggleRow(content, "Goal Highlight", Config.Visuals.GoalHighlight, "Enabled")
-        ui:createToggleRow(content, "Trajectory Line", Config.Visuals.TrajectoryLine, "Enabled")
-    elseif tabName == "Misc" then
-        ui:createToggleRow(content, "Stability Layer", Config.Misc.StabilityLayer, "Enabled")
-        ui:createToggleRow(content, "Safe Mode (60%)", Config.Misc.StabilityLayer, "SafeMode")
-        ui:createToggleRow(content, "Performance Optimizer", Config.Misc.PerfOptimizer, "Enabled")
-        ui:createToggleRow(content, "Idle Preventer", Config.Misc.IdlePrevent, "Enabled")
-        ui:createButton(content, "RECONNECT TO SERVER", function()
-            safeCall("queue_on_teleport", "game.ReplicatedStorage.DefaultTeleportScript:FireServer()")
-            game:GetService("TeleportService"):Teleport(game.PlaceId)
-        end, {Size = UDim2.new(1, -20, 0, 40), Pos = UDim2.new(0, 10, 0, 0)})
-    elseif tabName == "Settings" then
-        ui:createButton(content, "RESET ALL DEFAULTS", function()
-            table.clear(Config)
-            for k,v in pairs(DefaultConfig) do Config[k] = v end
-            saveConfig()
-            -- Refresh UI would require rebuild; simplified for single-file
-        end, {Size = UDim2.new(1, -20, 0, 40), Pos = UDim2.new(0, 10, 0, 0), Color = Color3.fromRGB(200, 80, 80)})
-        ui:createButton(content, "SAVE CONFIGURATION", function()
-            saveConfig()
-        end, {Size = UDim2.new(1, -20, 0, 40), Pos = UDim2.new(0, 10, 0, 50)})
+    -- Goalkeeper Positioning Assist
+    if Config.GKAssist and ball and ownGoal then
+        local goalPos = ownGoal:IsA("Model") and ownGoal:GetPivot().Position or ownGoal.Position
+        local ballVel = ball.Velocity
+        local predictedBallPos = ball.Position + (ballVel * Config.GKPredictionTime)
         
-        local infoLbl = Instance.new("TextLabel")
-        infoLbl.Text = string.format("Executor: %s\nEnvironment: Mobile Edu Sandbox", 
-            (identifyexecutor and identifyexecutor()) or "Unknown")
-        infoLbl.Font = Enum.Font.Code
-        infoLbl.TextSize = 11
-        infoLbl.TextColor3 = ui.Theme.SubText
-        infoLbl.BackgroundTransparency = 1
-        infoLbl.Size = UDim2.new(1, -20, 0, 60)
-        infoLbl.Position = UDim2.new(0, 10, 0, 100)
-        infoLbl.TextXAlignment = Enum.TextXAlignment.Left
-        infoLbl.TextYAlignment = Enum.TextYAlignment.Top
-        infoLbl.Parent = content
+        local goalToBall = (predictedBallPos - goalPos)
+        if goalToBall.Magnitude > 0 then
+            local targetPos = goalPos + (goalToBall.Unit * math.min(goalToBall.Magnitude, Config.GKWalkDistance))
+            local distToTarget = (targetPos - hrp.Position).Magnitude
+            
+            if distToTarget > 3 then
+                hum:Move((targetPos - hrp.Position).Unit + jitter, false)
+            end
+        end
     end
+
+    -- Ball Attraction
+    if Config.BallAttraction and ball then
+        local dist = (ball.Position - hrp.Position).Magnitude
+        if dist <= Config.AttractionRadius and dist > 3 then
+            local pullForce = (hrp.Position - ball.Position).Unit * GetEffectiveValue(Config.AttractionForce)
+            ball.Velocity = ball.Velocity + (pullForce * dt)
+        end
+    end
+
+    -- Shot Assist & Curve Physics Calculation
+    if ball and enemyGoal then
+        local enemyPos = enemyGoal:IsA("Model") and enemyGoal:GetPivot().Position or enemyGoal.Position
+        local distToBall = (ball.Position - hrp.Position).Magnitude
+
+        if Config.ShotAssist or Config.CombinedShot then
+            if distToBall <= Config.AutoShotDistance and not Cache.AlreadyDoingAction then
+                Cache.AlreadyDoingAction = true
+                
+                local basePower = GetEffectiveValue(Config.ShotPower)
+                if Config.CombinedShot then
+                    basePower = math.min(basePower * Config.CombinedMultiplier, 160) -- Dynamic upper cap
+                end
+
+                local targetDir = (enemyPos - ball.Position).Unit
+                local finalVelocity = targetDir * basePower
+                
+                -- Curve Application (Perpendicular force vector)
+                if Config.CurveEnabled then
+                    local curvePower = GetEffectiveValue(Config.CurvePower)
+                    local perpVector = Vector3.new(-targetDir.Z, 0, targetDir.X)
+                    finalVelocity = finalVelocity + (perpVector * (curvePower * 0.3))
+                end
+
+                -- Apply calculated velocity smoothly
+                ball.Velocity = finalVelocity
+                
+                task.delay(0.1, function()
+                    Cache.AlreadyDoingAction = false
+                end)
+            end
+        end
+
+        -- Auto Score Guidance
+        if Config.AutoScoreGuidance and ball.Velocity.Magnitude > 10 then
+            local dirToGoal = (enemyPos - ball.Position).Unit
+            ball.Velocity = ball.Velocity:Lerp(dirToGoal * ball.Velocity.Magnitude, dt * (Config.GuidancePower / 10))
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- 3. RenderStepped Logic (Visual Overlays & Smooth Aiming)
+--------------------------------------------------------------------------------
+local VisualFolder = Instance.new("Folder")
+VisualFolder.Name = "LessHub_Visuals"
+VisualFolder.Parent = Workspace
+
+local TrajectoryBeam = Instance.new("Beam")
+TrajectoryBeam.Width0 = 0.4
+TrajectoryBeam.Width1 = 0.4
+TrajectoryBeam.Color = ColorSequence.new(Color3.fromRGB(0, 170, 255))
+TrajectoryBeam.Transparency = NumberSequence.new(0.2)
+
+local Att0 = Instance.new("Attachment")
+local Att1 = Instance.new("Attachment")
+Att0.Parent = VisualFolder
+Att1.Parent = VisualFolder
+TrajectoryBeam.Attachment0 = Att0
+TrajectoryBeam.Attachment1 = Att1
+TrajectoryBeam.Parent = VisualFolder
+
+RunService.RenderStepped:Connect(function(dt)
+    if not Config.KeyValidated then return end
     
-    -- Add scroll layout to each tab
-    local list = Instance.new("UIListLayout")
-    list.Padding = UDim.new(0, 6)
-    list.SortOrder = Enum.SortOrder.LayoutOrder
-    list.Parent = content
-end
+    local ball = GetBall()
+    local enemyGoal, ownGoal = GetGoals()
+    
+    -- Visual: Trajectory Line Preview
+    if Config.TrajectoryLine and ball and enemyGoal then
+        local enemyPos = enemyGoal:IsA("Model") and enemyGoal:GetPivot().Position or enemyGoal.Position
+        Att0.WorldPosition = ball.Position
+        Att1.WorldPosition = enemyPos
+        TrajectoryBeam.Enabled = true
+    else
+        TrajectoryBeam.Enabled = false
+    end
 
--- Restore panel size on expand button click (simplified)
--- In production, store original size and toggle
+    -- Visual: Ball Highlight
+    if Config.BallHighlight and ball then
+        local hl = ball:FindFirstChild("LessHub_BallHL")
+        if not hl then
+            hl = Instance.new("Highlight")
+            hl.Name = "LessHub_BallHL"
+            hl.FillColor = Color3.fromRGB(0, 255, 120)
+            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+            hl.FillTransparency = 0.4
+            hl.Parent = ball
+        end
+        hl.Enabled = true
+    elseif ball and ball:FindFirstChild("LessHub_BallHL") then
+        ball.LessHub_BallHL.Enabled = false
+    end
 
-print("[EduPanel] Illegal Soccer Educational Interface Loaded Successfully.")
-print("[EduPanel] Mobile Optimized | Delta Compatible | v1.0.0")
+    -- Visual: Player Highlight
+    if Config.PlayerHighlight then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hl = plr.Character:FindFirstChild("LessHub_PlrHL")
+                if not hl then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "LessHub_PlrHL"
+                    hl.FillColor = Color3.fromRGB(255, 60, 60)
+                    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    hl.FillTransparency = 0.5
+                    hl.Parent = plr.Character
+                end
+                hl.Enabled = true
+            end
+        end
+    else
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character and plr.Character:FindFirstChild("LessHub_PlrHL") then
+                plr.Character.LessHub_PlrHL.Enabled = false
+            end
+        end
+    end
+
+    -- Visual: Goal Highlight
+    if Config.GoalHighlight then
+        if enemyGoal then
+            local hl = enemyGoal:FindFirstChild("LessHub_GoalHL")
+            if not hl then
+                hl = Instance.new("Highlight")
+                hl.Name = "LessHub_GoalHL"
+                hl.FillColor = Color3.fromRGB(0, 170, 255)
+                hl.FillTransparency = 0.6
+                hl.Parent = enemyGoal
+            end
+            hl.Enabled = true
+        end
+    elseif enemyGoal and enemyGoal:FindFirstChild("LessHub_GoalHL") then
+        enemyGoal.LessHub_GoalHL.Enabled = false
+    end
+
+    -- Aim Smoothing Camera Alignment
+    if Config.AimSmoothing and ball then
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local dist = (ball.Position - char.HumanoidRootPart.Position).Magnitude
+            if dist < 20 then
+                local targetCFrame = CFrame.new(Camera.CFrame.Position, ball.Position)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, dt * (Config.AimPower / 2))
+            end
+        end
+    end
+end)
+
+print("[LessHub]: Module successfully initialized.")
