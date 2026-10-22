@@ -1,657 +1,484 @@
---[[
-    LessHub - Illegal Soccer
-    Rayfield UI | Delta + Mobile
-    Remotes: Ball.Kick / Tackle / RainbowFlick (spy log)
-]]
+l-- Football Assist v6 FINAL
+-- Based on real FireServer log capture
 
-repeat task.wait() until game:IsLoaded()
+task.wait(0.5)
+pcall(function()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Football Assist v6",
+        Text = "Loaded. Notification = script works.",
+        Duration = 4,
+    })
+end)
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local Lighting = game:GetService("Lighting")
-local CoreGui = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
+local PG = LP:WaitForChild("PlayerGui", 5)
 
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local RemotesFolder = RS:FindFirstChild("Remotes")
+local BallFolder = RemotesFolder and RemotesFolder:FindFirstChild("Ball")
+local TackleRemote = BallFolder and BallFolder:FindFirstChild("Tackle")
+local KickRemote = BallFolder and BallFolder:FindFirstChild("Kick")
+local StateRemote = BallFolder and BallFolder:FindFirstChild("State")
+if not TackleRemote or not KickRemote then
+    warn("[v6] remotes missing"); return
+end
 
--- Rayfield
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-
-local Window = Rayfield:CreateWindow({
-    Name = "LessHub | Illegal Soccer",
-    LoadingTitle = "LessHub",
-    LoadingSubtitle = "Illegal Soccer",
-    Theme = "Default",
-    ToggleUIKeybind = "K",
-    ConfigurationSaving = { Enabled = false },
-    DisableRayfieldPrompts = true,
-    DisableBuildWarnings = true,
-})
-
--- Remotes
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-local BallRemotes = Remotes and Remotes:FindFirstChild("Ball")
-local CharRemotes = Remotes and Remotes:FindFirstChild("Characters")
-local ItemRemotes = Remotes and Remotes:FindFirstChild("Items")
-
-local KickRemote = BallRemotes and BallRemotes:FindFirstChild("Kick")
-local TackleRemote = BallRemotes and BallRemotes:FindFirstChild("Tackle")
-local FlickRemote = BallRemotes and BallRemotes:FindFirstChild("RainbowFlick")
-local CallPassRemote = BallRemotes and BallRemotes:FindFirstChild("CallForPass")
-local GKClearRemote = BallRemotes and BallRemotes:FindFirstChild("ForcedGoalkeeperClear")
-local GKClearRelease = BallRemotes and BallRemotes:FindFirstChild("ForcedGoalkeeperClearRelease")
-local BoostRemote = CharRemotes and CharRemotes:FindFirstChild("MovementBoost")
-local RagdollRemote = CharRemotes and CharRemotes:FindFirstChild("Ragdoll")
-local ItemRequest = ItemRemotes and ItemRemotes:FindFirstChild("Request")
-
--- Settings
+-- SETTINGS
 local S = {
-    AutoDodge = false,
-    DodgeDistance = 10,
-    AutoSlide = false,
-    SlideDistance = 12,
-    AutoFlick = false,
-    AutoPass = false,
-    PerfectShot = false,
-    AutoVolley = false,
-    CurveShot = false,
-    FakeShot = false,
-    CallForPass = false,
-    AutoItem = false,
-    GKClear = false,
-    KickPower = false,
-    AntiRagdoll = false,
-    AntiStun = false,
-    InfiniteStamina = false,
-    Speed = false,
-    SpeedValue = 1.3,
-    Fly = false,
-    FlySpeed = 50,
-    BallESP = false,
-    PlayerESP = false,
-    Fullbright = false,
-    FPSBoost = false,
+    infiniteStamina = false,
+    speedMultiplier = 1.0,
+    jumpBoost = false,
+    perfectShot = false,
+    perfectShotRange = 55,
+    curveMode = "off",      -- off / left / right / auto
+    autoDribble = false,
+    autoGK = false,
 }
 
-local idCounter = 0
-local function nextId()
-    idCounter += 1
-    return (math.floor(tick() * 1e6) % 1e12) * 1000 + idCounter
+-- MODULES
+local M = {}
+local function loadMod(name, path)
+    local ok, r = pcall(function()
+        local o = RS
+        for n in string.gmatch(path, "[^.]+") do
+            o = o:FindFirstChild(n); if not o then return nil end
+        end
+        return require(o)
+    end)
+    if ok and r then M[name] = r; return r end
 end
+loadMod("Sprint","Modules.Actions.Sprint")
+loadMod("Movement","Client.Gameplay.Player.Movement")
+loadMod("Dodge","Modules.Actions.Dodge")
+loadMod("Dive","Modules.Actions.GoalkeeperDive")
+loadMod("GKActions","Modules.Actions.GoalkeeperActions")
+loadMod("GKPrediction","Modules.Gameplay.GoalkeeperPrediction")
+loadMod("Renderer","Client.Gameplay.Ball.Renderer")
+loadMod("Match","Modules.Gameplay.MatchSettings")
+loadMod("Teams","Client.Gameplay.ActorTeams")
+loadMod("Practice","Client.Gameplay.PracticeSession")
+loadMod("Actors","Modules.Characters.Actors")
+loadMod("ActionCommands","Modules.Actions.ActionCommands")
+loadMod("Hitboxes","Modules.Gameplay.HitboxSettings")
 
+-- HELPERS
+local function getChar() return LP.Character end
 local function getRoot()
-    local c = LocalPlayer.Character
-    return c and c:FindFirstChild("HumanoidRootPart"), c and c:FindFirstChildOfClass("Humanoid")
+    local c = getChar(); return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function getHum()
+    local c = getChar(); return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function getCam() return workspace.CurrentCamera end
+local function flat(v) return Vector3.new(v.X,0,v.Z) end
+local function unit(v, fb) v = flat(v); return v.Magnitude > 1e-4 and v.Unit or (fb or Vector3.new(0,0,-1)) end
+local function v3(v) return typeof(v) == "Vector3" end
+local function finite(n) return type(n) == "number" and n == n and math.abs(n) < math.huge end
+
+-- SESSION ID
+local sessionCounter = math.floor(workspace:GetServerTimeNow() * 1e6)
+local function newId() sessionCounter = sessionCounter + 2; return sessionCounter end
+
+-- BALL POSITION
+local function getBallPos()
+    if M.Renderer and M.Renderer.GetPosition then
+        local ok, p = pcall(M.Renderer.GetPosition)
+        if ok and v3(p) then return p end
+    end
+    local map = workspace:FindFirstChild("Map")
+    local data = map and map:FindFirstChild("Data")
+    local ball = data and data:FindFirstChild("Ball")
+    if ball and ball:IsA("BasePart") then return ball.Position end
+    return nil
 end
 
-local function getBall()
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if v:IsA("BasePart") and (v.Name == "Ball" or v.Name:lower():find("ball")) and v.Size.Magnitude < 12 then
-            return v
+local function ballOwnedByMe()
+    if M.Renderer and M.Renderer.GetOwnedUserId then
+        local ok, id = pcall(M.Renderer.GetOwnedUserId)
+        if ok then return id == LP.UserId end
+    end
+    return false
+end
+
+-- GOAL
+local function getGoalCtx()
+    if M.Practice and M.Practice.IsActive then
+        local ok, a = pcall(M.Practice.IsActive)
+        if ok and a then
+            local ok2, g = pcall(M.Practice.GetDefendedGoalPart)
+            if ok2 and g and g:IsA("BasePart") then return { goal = g, mode = "PRACTICE" } end
         end
     end
-end
-
-local function aimDir()
-    local look = Camera.CFrame.LookVector
-    return Vector3.new(look.X, 0, look.Z).Unit
-end
-
-local function playerVel(root)
-    return root and root.AssemblyLinearVelocity or Vector3.zero
-end
-
-local function fireTackle(cmd)
-    if not TackleRemote then return end
-    pcall(function()
-        TackleRemote:FireServer({
-            Protocol = "ActionCommand",
-            Command = cmd,
-        })
-    end)
-end
-
-local function fireKickSession(phase, cmd)
-    if not KickRemote then return end
-    pcall(function()
-        KickRemote:FireServer({
-            Phase = phase,
-            Protocol = "ActionSession",
-            Command = cmd,
-        })
-    end)
-end
-
-local function fireFlick(cmd)
-    if not FlickRemote then return end
-    pcall(function()
-        FlickRemote:FireServer({
-            Protocol = "ActionCommand",
-            Command = cmd,
-        })
-    end)
-end
-
--- ========== TABS ==========
-local TabAuto = Window:CreateTab("Auto", "zap")
-local TabShot = Window:CreateTab("Shooting", "target")
-local TabMove = Window:CreateTab("Movement", "person-standing")
-local TabVis = Window:CreateTab("Visuals", "eye")
-local TabMisc = Window:CreateTab("Misc", "settings")
-
--- AUTO
-TabAuto:CreateToggle({
-    Name = "Auto Dodge",
-    CurrentValue = false,
-    Flag = "AutoDodge",
-    Callback = function(v) S.AutoDodge = v end,
-})
-TabAuto:CreateSlider({
-    Name = "Dodge Distance",
-    Range = {6, 16},
-    Increment = 0.5,
-    CurrentValue = 10,
-    Flag = "DodgeDist",
-    Callback = function(v) S.DodgeDistance = v end,
-})
-TabAuto:CreateToggle({
-    Name = "Auto Slide Tackle",
-    CurrentValue = false,
-    Flag = "AutoSlide",
-    Callback = function(v) S.AutoSlide = v end,
-})
-TabAuto:CreateSlider({
-    Name = "Slide Distance",
-    Range = {8, 20},
-    Increment = 0.5,
-    CurrentValue = 12,
-    Flag = "SlideDist",
-    Callback = function(v) S.SlideDistance = v end,
-})
-TabAuto:CreateToggle({
-    Name = "Auto Rainbow Flick",
-    CurrentValue = false,
-    Flag = "AutoFlick",
-    Callback = function(v) S.AutoFlick = v end,
-})
-TabAuto:CreateToggle({
-    Name = "Auto Pass (Assisted)",
-    CurrentValue = false,
-    Flag = "AutoPass",
-    Callback = function(v) S.AutoPass = v end,
-})
-TabAuto:CreateToggle({
-    Name = "Call For Pass",
-    CurrentValue = false,
-    Flag = "CallPass",
-    Callback = function(v) S.CallForPass = v end,
-})
-TabAuto:CreateToggle({
-    Name = "Auto Use Item",
-    CurrentValue = false,
-    Flag = "AutoItem",
-    Callback = function(v) S.AutoItem = v end,
-})
-TabAuto:CreateToggle({
-    Name = "GK Forced Clear",
-    CurrentValue = false,
-    Flag = "GKClear",
-    Callback = function(v) S.GKClear = v end,
-})
-
--- SHOOTING
-TabShot:CreateToggle({
-    Name = "Perfect Shot (Aim to Goal)",
-    CurrentValue = false,
-    Flag = "PerfectShot",
-    Callback = function(v) S.PerfectShot = v end,
-})
-TabShot:CreateToggle({
-    Name = "Auto Volley",
-    CurrentValue = false,
-    Flag = "AutoVolley",
-    Callback = function(v) S.AutoVolley = v end,
-})
-TabShot:CreateToggle({
-    Name = "Curve Shot",
-    CurrentValue = false,
-    Flag = "CurveShot",
-    Callback = function(v) S.CurveShot = v end,
-})
-TabShot:CreateToggle({
-    Name = "Fake Shot",
-    CurrentValue = false,
-    Flag = "FakeShot",
-    Callback = function(v) S.FakeShot = v end,
-})
-TabShot:CreateButton({
-    Name = "Manual Rainbow Flick",
-    Callback = function()
-        local root = getRoot()
-        if not root then return end
-        local id = nextId()
-        fireFlick({
-            PlayerVelocity = playerVel(root),
-            Kind = "RainbowFlick",
-            ShotTime = tick(),
-            ActionId = id,
-        })
-        task.delay(0.35, function()
-            local r2 = getRoot()
-            fireFlick({
-                Mode = "RainbowFlickDetach",
-                ActionId = nextId(),
-                PlayerVelocity = r2 and playerVel(r2) or Vector3.zero,
-                Kind = "RainbowFlick",
-                ShotTime = tick(),
-                AimDirection = aimDir(),
-            })
-        end)
-    end,
-})
-TabShot:CreateButton({
-    Name = "Manual Slide",
-    Callback = function()
-        local root = getRoot()
-        if not root then return end
-        fireTackle({
-            Mode = "Slide",
-            ActionId = nextId(),
-            PlayerVelocity = playerVel(root),
-            Kind = "Tackle",
-            ShotTime = tick(),
-            AimDirection = aimDir(),
-        })
-    end,
-})
-TabShot:CreateButton({
-    Name = "Manual Dodge",
-    Callback = function()
-        local root = getRoot()
-        if not root then return end
-        local id = nextId()
-        fireTackle({
-            Mode = "Dodge",
-            ActionId = id,
-            PlayerVelocity = playerVel(root),
-            Kind = "Tackle",
-            ShotTime = tick(),
-            AimDirection = aimDir(),
-        })
-        task.delay(0.25, function()
-            local r2 = getRoot()
-            fireTackle({
-                Mode = "DodgeEnd",
-                ActionId = nextId(),
-                PlayerVelocity = r2 and playerVel(r2) or Vector3.zero,
-                Kind = "Tackle",
-                ShotTime = tick(),
-            })
-        end)
-    end,
-})
-
--- MOVEMENT
-TabMove:CreateToggle({
-    Name = "Request Kick Power",
-    CurrentValue = false,
-    Flag = "KickPower",
-    Callback = function(v) S.KickPower = v end,
-})
-TabMove:CreateToggle({
-    Name = "Anti Ragdoll",
-    CurrentValue = false,
-    Flag = "AntiRagdoll",
-    Callback = function(v) S.AntiRagdoll = v end,
-})
-TabMove:CreateToggle({
-    Name = "Infinite Stamina (client)",
-    CurrentValue = false,
-    Flag = "InfStamina",
-    Callback = function(v) S.InfiniteStamina = v end,
-})
-TabMove:CreateToggle({
-    Name = "Speed Boost",
-    CurrentValue = false,
-    Flag = "Speed",
-    Callback = function(v) S.Speed = v end,
-})
-TabMove:CreateSlider({
-    Name = "Speed Multiplier",
-    Range = {1, 2.5},
-    Increment = 0.1,
-    CurrentValue = 1.3,
-    Flag = "SpeedVal",
-    Callback = function(v) S.SpeedValue = v end,
-})
-TabMove:CreateToggle({
-    Name = "Fly",
-    CurrentValue = false,
-    Flag = "Fly",
-    Callback = function(v) S.Fly = v end,
-})
-TabMove:CreateSlider({
-    Name = "Fly Speed",
-    Range = {20, 120},
-    Increment = 5,
-    CurrentValue = 50,
-    Flag = "FlySpd",
-    Callback = function(v) S.FlySpeed = v end,
-})
-
--- VISUALS
-TabVis:CreateToggle({
-    Name = "Ball ESP",
-    CurrentValue = false,
-    Flag = "BallESP",
-    Callback = function(v) S.BallESP = v end,
-})
-TabVis:CreateToggle({
-    Name = "Player ESP",
-    CurrentValue = false,
-    Flag = "PlayerESP",
-    Callback = function(v) S.PlayerESP = v end,
-})
-TabVis:CreateToggle({
-    Name = "Fullbright",
-    CurrentValue = false,
-    Flag = "Fullbright",
-    Callback = function(v)
-        S.Fullbright = v
-        if v then
-            Lighting.Brightness = 2.2
-            Lighting.FogEnd = 1e5
-            Lighting.GlobalShadows = false
-        else
-            Lighting.Brightness = 1
-            Lighting.FogEnd = 1000
-            Lighting.GlobalShadows = true
+    if M.Teams and M.Match then
+        local okT, team = pcall(M.Teams.GetActorTeamName, LP)
+        if okT and team then
+            local okO, opp = pcall(M.Match.GetOpposingTeamName, team)
+            if okO and opp then
+                local map = workspace:FindFirstChild("Map")
+                local data = map and map:FindFirstChild("Data")
+                local oppSide = data and data:FindFirstChild(opp)
+                local g = oppSide and oppSide:FindFirstChild("Goal")
+                if g and g:IsA("BasePart") then
+                    return { goal = g, team = team, mode = "MATCH" }
+                end
+            end
         end
-    end,
-})
-TabVis:CreateToggle({
-    Name = "FPS Boost",
-    CurrentValue = false,
-    Flag = "FPS",
-    Callback = function(v)
-        S.FPSBoost = v
-        pcall(function()
-            settings().Rendering.QualityLevel = v and 1 or 5
-        end)
-    end,
-})
+    end
+    return nil
+end
 
--- MISC
-TabMisc:CreateLabel("Delta + Mobile compatible")
-TabMisc:CreateLabel("SessionId may be server-checked")
-TabMisc:CreateButton({
-    Name = "Destroy Hub",
-    Callback = function()
-        Rayfield:Destroy()
-    end,
-})
+-- PERFECT AIM
+local function computePerfectAim()
+    local goalCtx = getGoalCtx()
+    local ballPos = getBallPos()
+    if not goalCtx or not ballPos then return nil end
+    local goal = goalCtx.goal
+    local cf = goal.CFrame
+    local sz = goal.Size
+    local up = Vector3.new(0,1,0)
+    
+    local forward = (sz.X < sz.Z) and cf.LookVector or cf.RightVector
+    if forward:Dot(ballPos - goal.Position) < 0 then forward = -forward end
+    local lateral = forward:Cross(up).Unit
+    local halfW = (math.abs(lateral:Dot(cf.RightVector)) * sz.X
+                 + math.abs(lateral:Dot(cf.LookVector)) * sz.Z) * 0.5
+    local halfH = sz.Y * 0.5
+    
+    -- Keeper detection
+    local sideSign = 1
+    if M.Actors and M.Actors.GetAllCharacterModels then
+        local ok, models = pcall(M.Actors.GetAllCharacterModels)
+        if ok and models then
+            for _, model in ipairs(models) do
+                if model ~= getChar() then
+                    local hum = model:FindFirstChildOfClass("Humanoid")
+                    local r = model:FindFirstChild("HumanoidRootPart")
+                    if hum and r and hum.Health > 0 then
+                        local toGoal = (goal.Position - r.Position).Magnitude
+                        if toGoal < 30 then
+                            local kLat = (r.Position - goal.Position):Dot(lateral)
+                            sideSign = kLat > 0 and -1 or 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local target = goal.Position + lateral * (halfW * 0.7 * sideSign) + up * (halfH * 0.7)
+    target = target - forward * 0.5
+    
+    local dir = (target - ballPos).Unit
+    return dir, sideSign
+end
 
--- ========== LOOPS ==========
-local lastDodge, lastSlide, lastFlick, lastPass, lastBoost = 0, 0, 0, 0, 0
-local bodyVel, bodyGyro
+-- BUILD SHOT START
+local function buildShotStart(direction)
+    local root = getRoot(); if not root then return nil end
+    local cam = getCam()
+    local ballPos = getBallPos() or root.Position
+    local sid = newId(); local now = workspace:GetServerTimeNow()
+    return {
+        Phase="Start", Protocol="ActionSession",
+        Command = {
+            MaximumChargeSeconds=0.4, SessionId=sid, ShotTime=now,
+            AimDirection = {
+                Direction=direction, Origin=ballPos,
+                CameraCFrame=cam and cam.CFrame or root.CFrame,
+                IsAirborne=false,
+            },
+            PassType="Shot", PlayerVelocity=root.AssemblyLinearVelocity,
+            Kind="Tackle", Mode="Kick", KickDirection=unit(direction),
+        }
+    }, sid, now
+end
 
-local function setFly(on)
-    local root = getRoot()
-    if on and root then
-        if bodyVel then bodyVel:Destroy() end
-        if bodyGyro then bodyGyro:Destroy() end
-        bodyVel = Instance.new("BodyVelocity")
-        bodyVel.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-        bodyVel.Velocity = Vector3.zero
-        bodyVel.Parent = root
-        bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-        bodyGyro.P = 12000
-        bodyGyro.Parent = root
+local function buildShotRelease(sid, t0, direction, curve)
+    local root = getRoot(); if not root then return nil end
+    local cam = getCam()
+    local ballPos = getBallPos() or root.Position
+    local cmd = {
+        MaximumChargeSeconds=0.4, ChargeStartedAt=t0, SessionId=sid,
+        ShotTime=workspace:GetServerTimeNow(),
+        AimDirection = {
+            Direction=direction, Origin=ballPos,
+            CameraCFrame=cam and cam.CFrame or root.CFrame,
+            IsAirborne=false,
+        },
+        PassType="Shot", KickDirection=unit(direction),
+        Kind="Tackle", PlayerVelocity=root.AssemblyLinearVelocity,
+        Mode="Kick", ChargeSeconds=0.4,
+    }
+    if curve and curve ~= 0 then cmd.Curve = curve end
+    return { Phase="Release", Protocol="ActionSession", Command=cmd }
+end
+
+local function buildDodge(direction)
+    local root = getRoot(); if not root then return nil end
+    return {
+        Protocol="ActionCommand",
+        Command = {
+            Mode="Dodge", Kind="Tackle", ActionId=newId(),
+            ShotTime=workspace:GetServerTimeNow(),
+            PlayerVelocity=root.AssemblyLinearVelocity,
+            AimDirection=unit(direction),
+        }
+    }
+end
+
+-- FIRE HELPERS
+local lastShotAt = 0
+local function firePerfectShot()
+    if os.clock() - lastShotAt < 1.0 then return false end
+    if not ballOwnedByMe() then return false end
+    local goalCtx = getGoalCtx(); if not goalCtx then return false end
+    local ballPos = getBallPos(); if not ballPos then return false end
+    if (goalCtx.goal.Position - ballPos).Magnitude > S.perfectShotRange then return false end
+    
+    local dir, sideSign = computePerfectAim()
+    if not dir then return false end
+    
+    local curve = 0
+    if S.curveMode == "left" then curve = -1
+    elseif S.curveMode == "right" then curve = 1
+    elseif S.curveMode == "auto" then curve = sideSign or 0 end
+    
+    lastShotAt = os.clock()
+    local start, sid, t0 = buildShotStart(dir)
+    if not start then return false end
+    local ok1 = pcall(function() TackleRemote:FireServer(start) end)
+    if not ok1 then return false end
+    task.wait(0.42)
+    local release = buildShotRelease(sid, t0, dir, curve)
+    if not release then return false end
+    pcall(function() TackleRemote:FireServer(release) end)
+    S.stats_shots = (S.stats_shots or 0) + 1
+    return true
+end
+
+local function fireFakeShot()
+    local cam = getCam()
+    local root = getRoot(); if not root then return false end
+    local dir = unit(cam and cam.CFrame.LookVector or root.CFrame.LookVector)
+    local start = buildShotStart(dir)
+    if not start then return false end
+    pcall(function() TackleRemote:FireServer(start) end)
+    task.wait(0.15)
+    local dodge = buildDodge(dir)
+    if dodge then pcall(function() TackleRemote:FireServer(dodge) end) end
+    return true
+end
+
+local function fireDodgeAway(threatPos)
+    local root = getRoot(); if not root then return false end
+    local away = flat(root.Position - threatPos)
+    if away.Magnitude < 0.1 then away = flat(root.CFrame.LookVector) end
+    local dodge = buildDodge(away.Unit)
+    if dodge then pcall(function() TackleRemote:FireServer(dodge) end) return true end
+    return false
+end
+
+-- INCOMING TACKLE DETECTION (for auto dribble)
+local threats = {}
+if TackleRemote and TackleRemote.OnClientEvent then
+    TackleRemote.OnClientEvent:Connect(function(packet)
+        if type(packet) ~= "table" then return end
+        local cmd = packet.Command
+        if not cmd then return end
+        if cmd.Kind == "Tackle" and (cmd.Mode == "Slide" or cmd.Mode == "Kick" or cmd.Mode == "Volley") then
+            local actorId = cmd.ActorUserId or cmd.UserId
+            if actorId and actorId ~= LP.UserId then
+                threats[actorId] = workspace:GetServerTimeNow()
+            end
+        end
+    end)
+end
+
+-- STAMINA / SPEED
+local function applyStamina(on)
+    if not M.Sprint then return end
+    if on then
+        pcall(M.Sprint.SetUnlimitedStamina, "v6")
+        pcall(M.Sprint.SetUnlimitedStamina, "v6", true)
     else
-        if bodyVel then bodyVel:Destroy() bodyVel = nil end
-        if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+        pcall(M.Sprint.ClearUnlimitedStaminaSource, "v6")
+    end
+end
+local function applySpeed()
+    if not M.Movement or not M.Movement.SetMultiplier then return end
+    local char = getChar(); if not char then return end
+    pcall(M.Movement.SetMultiplier, char, S.speedMultiplier)
+end
+local function applyJump()
+    local hum = getHum(); if not hum then return end
+    hum.JumpPower = S.jumpBoost and 120 or 50
+end
+
+-- AUTO DRIBBLE / GK LOOPS
+local lastDribble = 0
+local function tickAutoDribble()
+    if not S.autoDribble then return end
+    if os.clock() - lastDribble < 1.0 then return end
+    if not ballOwnedByMe() then return end
+    if M.Dodge and M.Dodge.IsDribbling then
+        local ok, d = pcall(M.Dodge.IsDribbling)
+        if ok and d then return end
+    end
+    local now = workspace:GetServerTimeNow()
+    for actorId, t in pairs(threats) do
+        if now - t < 1.0 then
+            local actor = M.Actors and M.Actors.GetByUserId and M.Actors.GetByUserId(actorId)
+            local r = actor and actor.Character and actor.Character:FindFirstChild("HumanoidRootPart")
+            if r and (r.Position - (getRoot() and getRoot().Position or Vector3.zero)).Magnitude < 8 then
+                if fireDodgeAway(r.Position) then
+                    lastDribble = os.clock()
+                    return
+                end
+            end
+        else
+            threats[actorId] = nil
+        end
     end
 end
 
-local function addESP(part, color, text)
-    if part:FindFirstChild("LessESP") then return end
-    local b = Instance.new("BillboardGui")
-    b.Name = "LessESP"
-    b.AlwaysOnTop = true
-    b.Size = UDim2.new(0, 100, 0, 28)
-    b.StudsOffset = Vector3.new(0, 2.4, 0)
-    b.Adornee = part
-    b.Parent = part
-    local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1, 0, 1, 0)
-    t.BackgroundTransparency = 1
-    t.Text = text
-    t.TextColor3 = color
-    t.TextStrokeTransparency = 0.5
-    t.Font = Enum.Font.GothamBold
-    t.TextSize = 12
-    t.Parent = b
+-- UI
+local gui = Instance.new("ScreenGui")
+gui.Name = "FootballAssistV6"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = false
+gui.DisplayOrder = 999999
+gui.Parent = PG
+
+local panel = Instance.new("Frame")
+panel.Size = UDim2.new(0, 320, 0, 520)
+panel.Position = UDim2.new(0.5, -160, 0, 30)
+panel.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+panel.BorderSizePixel = 4
+panel.BorderColor3 = Color3.fromRGB(200, 170, 90)
+panel.Parent = gui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+title.BorderSizePixel = 0
+title.Text = "FOOTBALL ASSIST v6"
+title.TextColor3 = Color3.fromRGB(220, 190, 110)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.Parent = panel
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 36, 0, 36)
+closeBtn.Position = UDim2.new(1, -40, 0, 2)
+closeBtn.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+closeBtn.BorderSizePixel = 0
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 18
+closeBtn.Parent = panel
+closeBtn.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -20, 1, -60)
+scroll.Position = UDim2.new(0, 10, 0, 50)
+scroll.BackgroundTransparency = 1
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 6
+scroll.ScrollBarImageColor3 = Color3.fromRGB(200, 170, 90)
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scroll.Parent = panel
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 4)
+layout.Parent = scroll
+
+local y_auto = 0
+local function addBtn(text, color, cb)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -4, 0, 38)
+    b.LayoutOrder = y_auto; y_auto = y_auto + 1
+    b.BackgroundColor3 = color or Color3.fromRGB(40, 40, 40)
+    b.BorderSizePixel = 2
+    b.BorderColor3 = Color3.fromRGB(80, 80, 80)
+    b.Text = text
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.Parent = scroll
+    b.MouseButton1Click:Connect(function()
+        local ok, err = pcall(cb)
+        if not ok then warn("[v6] " .. tostring(err)) end
+    end)
+    return b
 end
 
+-- BUTTONS
+addBtn("[STAMINA] ON", Color3.fromRGB(30,100,50), function()
+    S.infiniteStamina = true
+    applyStamina(true)
+end)
+addBtn("[STAMINA] OFF", Color3.fromRGB(100,30,30), function()
+    S.infiniteStamina = false
+    applyStamina(false)
+end)
+addBtn("[SPEED] 2x ON", Color3.fromRGB(30,100,50), function()
+    S.speedMultiplier = 2.0; applySpeed()
+end)
+addBtn("[SPEED] OFF", Color3.fromRGB(100,30,30), function()
+    S.speedMultiplier = 1.0; applySpeed()
+end)
+addBtn("[JUMP] BOOST", Color3.fromRGB(30,100,50), function()
+    S.jumpBoost = not S.jumpBoost
+    applyJump()
+end)
+addBtn("[SHOT] PERFECT (auto fire)", Color3.fromRGB(120,90,20), function()
+    S.perfectShot = not S.perfectShot
+end)
+addBtn("[SHOT] FIRE NOW", Color3.fromRGB(120,90,20), function()
+    firePerfectShot()
+end)
+addBtn("[SHOT] FAKE", Color3.fromRGB(120,60,20), function()
+    fireFakeShot()
+end)
+addBtn("[CURVE] off", Color3.fromRGB(50,50,80), function()
+    local modes = {"off", "left", "right", "auto"}
+    local i = 1
+    for j, m in ipairs(modes) do if m == S.curveMode then i = j; break end end
+    S.curveMode = modes[(i % #modes) + 1]
+end)
+addBtn("[DRIBBLE] AUTO ON/OFF", Color3.fromRGB(30,100,50), function()
+    S.autoDribble = not S.autoDribble
+end)
+
+-- MAIN LOOP
+local staminaApplied = false
 RunService.Heartbeat:Connect(function()
-    local root, hum = getRoot()
-    if not root or not hum or hum.Health <= 0 then return end
-
+    if not gui.Parent then return end
+    -- Stamina re-apply
+    if S.infiniteStamina and not staminaApplied then
+        applyStamina(true); staminaApplied = true
+    elseif not S.infiniteStamina and staminaApplied then
+        applyStamina(false); staminaApplied = false
+    end
     -- Speed
-    if S.Speed then
-        hum.WalkSpeed = 16 * S.SpeedValue
+    if S.speedMultiplier ~= 1.0 then
+        applySpeed()
     end
-
-    -- Stamina client
-    if S.InfiniteStamina then
-        pcall(function()
-            for _, v in ipairs(LocalPlayer.Character:GetDescendants()) do
-                if v:IsA("NumberValue") and v.Name:lower():find("stamina") then
-                    v.Value = 999
-                end
-            end
-        end)
+    -- Jump
+    if S.jumpBoost then
+        applyJump()
     end
-
-    -- Anti ragdoll client
-    if S.AntiRagdoll then
-        pcall(function()
-            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            if hum:GetState() == Enum.HumanoidStateType.Ragdoll then
-                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-            end
-        end)
+    -- Auto shot
+    if S.perfectShot then
+        firePerfectShot()
     end
-
-    -- Fly
-    if S.Fly then
-        if not bodyVel then setFly(true) end
-        local mv = Vector3.zero
-        local cam = Camera.CFrame
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv += cam.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv -= cam.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv -= cam.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv += cam.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then mv += Vector3.yAxis end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then mv -= Vector3.yAxis end
-        if UserInputService.TouchEnabled and mv.Magnitude < 0.1 then
-            mv = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
-        end
-        bodyVel.Velocity = mv.Magnitude > 0 and mv.Unit * S.FlySpeed or Vector3.zero
-        bodyGyro.CFrame = cam
-    elseif bodyVel then
-        setFly(false)
-    end
-
-    -- Kick power spam (low rate)
-    if S.KickPower and BoostRemote and tick() - lastBoost > 1.5 then
-        lastBoost = tick()
-        pcall(function() BoostRemote:FireServer("RequestKickPower") end)
-    end
-
-    -- Auto Dodge
-    if S.AutoDodge and tick() - lastDodge > 0.45 then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr \~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                local d = (root.Position - plr.Character.HumanoidRootPart.Position).Magnitude
-                if d < S.DodgeDistance then
-                    lastDodge = tick()
-                    local id = nextId()
-                    fireTackle({
-                        Mode = "Dodge",
-                        ActionId = id,
-                        PlayerVelocity = playerVel(root),
-                        Kind = "Tackle",
-                        ShotTime = tick(),
-                        AimDirection = aimDir(),
-                    })
-                    task.delay(0.28, function()
-                        local r2 = getRoot()
-                        fireTackle({
-                            Mode = "DodgeEnd",
-                            ActionId = nextId(),
-                            PlayerVelocity = r2 and playerVel(r2) or Vector3.zero,
-                            Kind = "Tackle",
-                            ShotTime = tick(),
-                        })
-                    end)
-                    break
-                end
-            end
-        end
-    end
-
-    -- Auto Slide
-    if S.AutoSlide and tick() - lastSlide > 0.7 then
-        local ball = getBall()
-        if ball then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr \~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                    local er = plr.Character.HumanoidRootPart
-                    if (root.Position - er.Position).Magnitude < S.SlideDistance
-                        and (er.Position - ball.Position).Magnitude < 10 then
-                        lastSlide = tick()
-                        fireTackle({
-                            Mode = "Slide",
-                            ActionId = nextId(),
-                            PlayerVelocity = playerVel(root),
-                            Kind = "Tackle",
-                            ShotTime = tick(),
-                            AimDirection = (ball.Position - root.Position).Unit,
-                        })
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    -- Auto Flick
-    if S.AutoFlick and tick() - lastFlick > 2 then
-        local ball = getBall()
-        if ball and (ball.Position - root.Position).Magnitude < 8 then
-            lastFlick = tick()
-            fireFlick({
-                PlayerVelocity = playerVel(root),
-                Kind = "RainbowFlick",
-                ShotTime = tick(),
-                ActionId = nextId(),
-            })
-            task.delay(0.35, function()
-                local r2 = getRoot()
-                fireFlick({
-                    Mode = "RainbowFlickDetach",
-                    ActionId = nextId(),
-                    PlayerVelocity = r2 and playerVel(r2) or Vector3.zero,
-                    Kind = "RainbowFlick",
-                    ShotTime = tick(),
-                    AimDirection = aimDir(),
-                })
-            end)
-        end
-    end
-
-    -- Call for pass
-    if S.CallForPass and CallPassRemote and tick() - lastPass > 2 then
-        lastPass = tick()
-        pcall(function() CallPassRemote:FireServer() end)
-    end
-
-    -- GK Clear
-    if S.GKClear and GKClearRemote then
-        local ball = getBall()
-        if ball and (ball.Position - root.Position).Magnitude < 25 then
-            pcall(function()
-                GKClearRemote:FireServer()
-                if GKClearRelease then
-                    task.delay(0.2, function()
-                        pcall(function() GKClearRelease:FireServer() end)
-                    end)
-                end
-            end)
-        end
-    end
+    -- Auto dribble
+    tickAutoDribble()
 end)
 
--- Perfect Shot / Fake Shot: soft hook on Kick FireServer
-task.spawn(function()
-    if not KickRemote then return end
-    local old
-    if hookfunction then
-        old = hookfunction(KickRemote.FireServer, function(self, data, ...)
-            if typeof(data) == "table" and data.Protocol == "ActionSession" and data.Command then
-                local cmd = data.Command
-                if S.PerfectShot and data.Phase == "Release" then
-                    -- try aim forward / camera
-                    local dir = aimDir()
-                    if typeof(cmd.AimDirection) == "Vector3" then
-                        cmd.AimDirection = dir
-                    elseif typeof(cmd.AimDirection) == "table" then
-                        cmd.AimDirection.Direction = dir
-                    end
-                    if cmd.KickDirection then cmd.KickDirection = dir end
-                    if S.CurveShot then cmd.Curve = -1 end
-                end
-                if S.FakeShot and data.Phase == "Start" then
-                    -- cancel-like: very short charge path — user still needs to release; mark pass type
-                    cmd.PassType = "FreeLowPass"
-                end
-                if S.AutoPass and data.Phase == "Release" then
-                    cmd.PassType = "AssistedPass"
-                end
-            end
-            return old(self, data, ...)
-        end)
-    end
-end)
-
--- ESP loop
-task.spawn(function()
-    while task.wait(0.6) do
-        if S.BallESP then
-            local b = getBall()
-            if b then addESP(b, Color3.fromRGB(255, 220, 0), "BALL") end
-        end
-        if S.PlayerESP then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr \~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                    local col = plr.Team and plr.Team.TeamColor.Color or Color3.fromRGB(255, 80, 80)
-                    addESP(plr.Character.HumanoidRootPart, col, plr.Name)
-                end
-            end
-        end
-    end
-end)
-
-Rayfield:Notify({
-    Title = "LessHub",
-    Content = "Loaded | Test Auto Dodge / Slide / Flick first",
-    Duration = 5,
-})
-
-print("LessHub loaded")
+print("[v6] Football Assist loaded. Notification = working.")
